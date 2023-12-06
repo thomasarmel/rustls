@@ -159,6 +159,25 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             key_log: Arc::new(NoKeyLog {}),
             enable_secret_extraction: false,
             enable_early_data: false,
+            accept_qkd: false,
+        }
+    }
+
+    /// Accepts QKD
+    pub fn with_qkd(self) -> ClientConfig {
+        ClientConfig {
+            provider: self.state.provider,
+            alpn_protocols: Vec::new(),
+            resumption: Resumption::default(),
+            max_fragment_size: None,
+            client_auth_cert_resolver: Arc::new(handy::FailResolveClientCert {}),
+            versions: self.state.versions,
+            enable_sni: true,
+            verifier: self.state.verifier,
+            key_log: Arc::new(NoKeyLog {}),
+            enable_secret_extraction: false,
+            enable_early_data: false,
+            accept_qkd: true,
         }
     }
 }

@@ -465,6 +465,7 @@ pub mod client {
     #[cfg(feature = "tls12")]
     mod tls12;
     mod tls13;
+    mod qkd;
 
     pub use builder::WantsClientCert;
     pub use client_conn::{

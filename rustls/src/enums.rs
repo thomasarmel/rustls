@@ -101,7 +101,8 @@ enum_builder! {
         TLSv1_3 => 0x0304,
         DTLSv1_0 => 0xFEFF,
         DTLSv1_2 => 0xFEFD,
-        DTLSv1_3 => 0xFEFC
+        DTLSv1_3 => 0xFEFC,
+        QKDv1_0 => 0x0E00
     }
 }
 

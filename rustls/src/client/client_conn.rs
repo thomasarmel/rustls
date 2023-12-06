@@ -200,6 +200,9 @@ pub struct ClientConfig {
     ///
     /// The default is false.
     pub enable_early_data: bool,
+
+    /// Whether to accept QKD ciphersuites.
+    pub accept_qkd: bool,
 }
 
 /// What mechanisms to support for resuming a TLS 1.2 session.
@@ -232,6 +235,7 @@ impl Clone for ClientConfig {
             key_log: Arc::clone(&self.key_log),
             enable_secret_extraction: self.enable_secret_extraction,
             enable_early_data: self.enable_early_data,
+            accept_qkd: self.accept_qkd,
         }
     }
 }
@@ -654,6 +658,10 @@ impl ConnectionCore<ClientConnectionData> {
             data: &mut data,
         };
 
+        if config.accept_qkd {
+            let state = hs::start_qkd_handshake(name, config, &mut cx)?;
+            return Ok(Self::new(state, data, common_state));
+        }
         let state = hs::start_handshake(name, extra_exts, config, &mut cx)?;
         Ok(Self::new(state, data, common_state))
     }
