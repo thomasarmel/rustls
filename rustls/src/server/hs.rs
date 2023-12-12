@@ -428,6 +428,9 @@ impl ExpectClientHello {
 impl State<ServerConnectionData> for ExpectClientHello {
     fn handle(self: Box<Self>, cx: &mut ServerContext<'_>, m: Message) -> NextStateOrError {
         let (client_hello, sig_schemes) = process_client_hello(&m, self.done_retry, cx)?;
+        let config = self.config.clone();
+        cx.common.server_config = Some(config.clone());
+        cx.common.is_qkd = config.accept_qkd; // TODO: is_qkd shall be negociated instead of being assumed
         self.with_certified_key(sig_schemes, client_hello, &m, cx)
     }
 }

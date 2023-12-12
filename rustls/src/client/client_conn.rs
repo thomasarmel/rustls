@@ -658,10 +658,10 @@ impl ConnectionCore<ClientConnectionData> {
             data: &mut data,
         };
 
-        if config.accept_qkd {
-            let state = hs::start_qkd_handshake(name, config, &mut cx)?;
-            return Ok(Self::new(state, data, common_state));
-        }
+        cx.common.is_qkd = config.accept_qkd;
+        cx.common.server_name = Some(name.clone());
+        cx.common.client_config = Some(Arc::clone(&config));
+
         let state = hs::start_handshake(name, extra_exts, config, &mut cx)?;
         Ok(Self::new(state, data, common_state))
     }

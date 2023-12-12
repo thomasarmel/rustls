@@ -25,7 +25,7 @@ use crate::SupportedCipherSuite;
 
 #[cfg(feature = "tls12")]
 use super::tls12;
-use super::{ClientSessionStore, Tls12Resumption};
+use super::Tls12Resumption;
 use crate::client::client_conn::ClientConnectionData;
 use crate::client::common::ClientHelloDetails;
 use crate::client::{tls13, ClientConfig};
@@ -38,8 +38,6 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
-use std::io::Read;
-use std::net::TcpListener;
 
 pub(super) type NextState = Box<dyn State<ClientConnectionData>>;
 pub(super) type NextStateOrError = Result<NextState, Error>;
@@ -903,45 +901,5 @@ impl Deref for ClientSessionValue {
 
     fn deref(&self) -> &Self::Target {
         self.common()
-    }
-}
-
-pub(super) fn start_qkd_handshake(server_name: ServerName<'static>,
-                                  config: Arc<ClientConfig>,
-                                  cx: &mut ClientContext<'_>,
-) -> NextStateOrError {
-    // Create a TCP server on port 8999 in order to receive the QKD key from the QKD server
-    // and assume that is corresponds to a real QKD key exchange.
-    //let listener = TcpListener::bind("0.0.0.0:8999").unwrap(); // obvious security flaw :)
-    //let mut stream = listener.accept().unwrap().0;
-    //let mut buf = [0; 32];
-    //stream.read(&mut buf).unwrap();
-    //let iv: [u8; 12] = [0; 12]; // Obviously, this is not secure. But it is just a demo.
-    /*cx.common.record_layer.prepare_message_encrypter(Box::new(crate::crypto::ring::tls13::Tls13MessageEncrypter {
-        enc_key: aead::LessSafeKey::new(aead::UnboundKey::new(self.0, buf.as_ref()).unwrap()),
-        iv: Iv::from(iv),
-    }));*/
-    cx.common.record_layer.set_message_encrypter(Box::new(crate::client::qkd::QkdEncrypter::new(
-        &[0; 32],
-        &[0; 16],
-    )));
-    cx.common.start_traffic();
-    Ok(Box::new(ExpectTrafficQkd { session_storage: Arc::clone(&config.resumption.store), server_name }))
-}
-
-pub(crate) struct ExpectTrafficQkd {
-    pub(crate) session_storage: Arc<dyn ClientSessionStore>,
-    pub(crate) server_name: ServerName<'static>,
-}
-
-impl State<ClientConnectionData> for ExpectTrafficQkd {
-    fn handle(self: Box<Self>, cx: &mut Context<'_, ClientConnectionData>, message: Message) -> Result<Box<dyn State<ClientConnectionData>>, Error> {
-        match message.payload {
-            MessagePayload::ApplicationData(payload) => cx
-                .common
-                .take_received_plaintext(payload),
-            _ => unimplemented!(),
-        }
-        Ok(self)
     }
 }

@@ -19,8 +19,9 @@ use crate::vecbuf::ChunkVecBuffer;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use std::sync::Arc;
 
-use pki_types::CertificateDer;
+use pki_types::{CertificateDer, ServerName};
 
 /// Connection state common to both client and server connections.
 pub struct CommonState {
@@ -49,6 +50,10 @@ pub struct CommonState {
     pub(crate) protocol: Protocol,
     pub(crate) quic: quic::Quic,
     pub(crate) enable_secret_extraction: bool,
+    pub(crate) is_qkd: bool,
+    pub(crate) server_name: Option<ServerName<'static>>,
+    pub(crate) client_config: Option<Arc<crate::client::ClientConfig>>,
+    pub(crate) server_config: Option<Arc<crate::server::ServerConfig>>,
 }
 
 impl CommonState {
@@ -76,6 +81,10 @@ impl CommonState {
             protocol: Protocol::Tcp,
             quic: quic::Quic::default(),
             enable_secret_extraction: false,
+            is_qkd: false,
+            server_name: None,
+            client_config: None,
+            server_config: None,
         }
     }
 

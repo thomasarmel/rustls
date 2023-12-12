@@ -77,6 +77,37 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         Ok(self.with_cert_resolver(Arc::new(resolver)))
     }
 
+    /// Setup a QKD server with single certificate chain and matching private key.
+    pub fn with_qkd_and_single_cert(
+        self,
+        cert_chain: Vec<CertificateDer<'static>>,
+        key_der: PrivateKeyDer<'static>,
+    ) -> Result<ServerConfig, Error> {
+        let private_key = self
+            .state
+            .provider
+            .key_provider
+            .load_private_key(key_der)?;
+        let resolver = handy::AlwaysResolvesChain::new(private_key, CertificateChain(cert_chain));
+        Ok(ServerConfig {
+            provider: self.state.provider,
+            verifier: self.state.verifier,
+            cert_resolver: Arc::new(resolver),
+            ignore_client_order: false,
+            max_fragment_size: None,
+            session_storage: handy::ServerSessionMemoryCache::new(256),
+            ticketer: Arc::new(handy::NeverProducesTickets {}),
+            alpn_protocols: Vec::new(),
+            versions: self.state.versions,
+            key_log: Arc::new(NoKeyLog {}),
+            enable_secret_extraction: false,
+            max_early_data_size: 0,
+            send_half_rtt_data: false,
+            send_tls13_tickets: 4,
+            accept_qkd: true,
+        })
+    }
+
     /// Sets a single certificate chain, matching private key and optional OCSP
     /// response.  This certificate and key is used for all
     /// subsequent connections, irrespective of things like SNI hostname.
@@ -124,6 +155,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             max_early_data_size: 0,
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
+            accept_qkd: false,
         }
     }
 }

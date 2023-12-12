@@ -315,6 +315,9 @@ pub struct ServerConfig {
     /// If this is 0, no tickets are sent and clients will not be able to
     /// do any resumption.
     pub send_tls13_tickets: usize,
+
+    /// Whether to accept QKD ciphersuites.
+    pub accept_qkd: bool,
 }
 
 // Avoid a `Clone` bound on `C`.
@@ -335,6 +338,7 @@ impl Clone for ServerConfig {
             max_early_data_size: self.max_early_data_size,
             send_half_rtt_data: self.send_half_rtt_data,
             send_tls13_tickets: self.send_tls13_tickets,
+            accept_qkd: self.accept_qkd,
         }
     }
 }
@@ -712,7 +716,7 @@ impl Accepted {
 
         self.connection.enable_secret_extraction = config.enable_secret_extraction;
 
-        let state = hs::ExpectClientHello::new(config, Vec::new());
+        let state = hs::ExpectClientHello::new(config.clone(), Vec::new());
         let mut cx = hs::ServerContext::from(&mut self.connection);
 
         let new = state.with_certified_key(

@@ -39,6 +39,7 @@ use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
 
 pub(super) use client_hello::CompleteClientHelloHandling;
+use crate::server::qkd::{ExpectQkdExchange, receive_qkd_key};
 
 mod client_hello {
     use crate::crypto::SupportedKxGroup;
@@ -242,8 +243,9 @@ mod client_hello {
                             cx.common,
                             group.name(),
                         );
-                        emit_fake_ccs(cx.common);
-
+                        if !self.config.accept_qkd {
+                            emit_fake_ccs(cx.common);
+                        }
                         let skip_early_data = max_early_data_size(self.config.max_early_data_size);
 
                         let next = Box::new(hs::ExpectClientHello {
@@ -371,7 +373,8 @@ mod client_hello {
                     .map(|x| &x.master_secret.0[..]),
                 &self.config,
             )?;
-            if !self.done_retry {
+
+            if !self.done_retry && !self.config.accept_qkd {
                 emit_fake_ccs(cx.common);
             }
 
@@ -437,6 +440,15 @@ mod client_hello {
                 key_schedule,
                 &self.config,
             );
+
+            if self.config.accept_qkd {
+                receive_qkd_key(cx);
+                return Ok(
+                    Box::new(ExpectQkdExchange {
+                        config: self.config,
+                    })
+                );
+            }
 
             if !doing_client_auth && self.config.send_half_rtt_data {
                 // Application data can be sent immediately after Finished, in one

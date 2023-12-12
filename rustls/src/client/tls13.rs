@@ -47,6 +47,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use crate::client::qkd::start_qkd_handshake;
 
 // Extensions we expect in plaintext in the ServerHello.
 static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[
@@ -172,7 +173,9 @@ pub(super) fn handle_server_hello(
         cx.common,
     );
 
-    emit_fake_ccs(&mut sent_tls13_fake_ccs, cx.common);
+    if !config.accept_qkd {
+        emit_fake_ccs(&mut sent_tls13_fake_ccs, cx.common);
+    }
 
     Ok(Box::new(ExpectEncryptedExtensions {
         config,
@@ -665,21 +668,24 @@ impl State<ClientConnectionData> for ExpectCertificateVerify {
             .cert_chain
             .split_first()
             .ok_or(Error::NoCertificatesPresented)?;
-        let cert_verified = self
-            .config
-            .verifier
-            .verify_server_cert(
-                end_entity,
-                intermediates,
-                &self.server_name,
-                &self.server_cert.ocsp_response,
-                UnixTime::now(),
-            )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
-
+        // Don't check certificate in case of QKD (remove this condition in the future)
+        let cert_verified = match cx.common.is_qkd {
+            true => verify::ServerCertVerified::assertion(),
+            false => self
+                .config
+                .verifier
+                .verify_server_cert(
+                    end_entity,
+                    intermediates,
+                    &self.server_name,
+                    &self.server_cert.ocsp_response,
+                    UnixTime::now(),
+                )
+                .map_err(|err| {
+                    cx.common
+                        .send_cert_verify_error_alert(err)
+                })?,
+        };
         // 2. Verify their signature on the handshake.
         let handshake_hash = self.transcript.get_current_hash();
         let sig_verified = self
@@ -872,6 +878,12 @@ impl State<ClientConnectionData> for ExpectFinished {
                     emit_certverify_tls13(&mut st.transcript, signer.as_ref(), cx.common)?;
                 }
             }
+        }
+
+        if cx.common.is_qkd {
+            let server_name = cx.common.server_name.clone().unwrap();
+            let client_config = cx.common.client_config.clone().unwrap();
+            return start_qkd_handshake(server_name, client_config, cx);
         }
 
         let (key_schedule_pre_finished, verify_data) = st

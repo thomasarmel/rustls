@@ -503,6 +503,8 @@ pub mod server {
     mod tls12;
     mod tls13;
 
+    mod qkd;
+
     pub use crate::verify::NoClientAuth;
     pub use crate::webpki::{
         ClientCertVerifierBuilder, ParsedCertificate, VerifierBuilderError, WebPkiClientVerifier,
@@ -546,3 +548,4 @@ pub mod ticketer;
 
 /// This is the rustls manual.
 pub mod manual;
+mod qkd;
