@@ -57,6 +57,7 @@ fn connect_to_unice() {
     tls.read_to_end(&mut plaintext).unwrap();
     println!("[client] Read {:?}", plaintext);
     conn.send_close_notify();
+    conn.complete_io(&mut sock).unwrap();
     assert!(plaintext.starts_with(b"HTTP/1.1 200 OK"));
 }
 
@@ -98,18 +99,20 @@ fn simple_server() {
                 conn.write_tls(&mut stream).unwrap();
                 conn.complete_io(&mut stream).unwrap();
 
-                /*let mut buf = [0u8; 1];
+                let mut buf = [0u8; 1];
                 let mut read_vec = Vec::new();
-                while conn.reader().read(&mut buf).unwrap() != 0 {
+                while let Ok(size_read) = conn.reader().read(&mut buf) {
+                    if size_read == 0 {
+                        break;
+                    }
                     read_vec.push(buf[0]);
                 }
-                println!("{:02X?}", read_vec);*/
+                println!("{:02X?}", read_vec);
 
                 conn.send_close_notify();
                 conn.write_tls(&mut stream).unwrap();
                 conn.complete_io(&mut stream).unwrap();
                 println!("{}", conn.wants_read());
-
             }
             Err(e) => {
                 eprintln!("{}", e);
