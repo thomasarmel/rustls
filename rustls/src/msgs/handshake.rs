@@ -555,6 +555,7 @@ pub enum ClientExtension {
     TransportParameters(Vec<u8>),
     TransportParametersDraft(Vec<u8>),
     EarlyData,
+    QkdKeyUUIDAndClientId(Vec<u8>),
     Unknown(UnknownExtension),
 }
 
@@ -577,6 +578,7 @@ impl ClientExtension {
             Self::TransportParameters(_) => ExtensionType::TransportParameters,
             Self::TransportParametersDraft(_) => ExtensionType::TransportParametersDraft,
             Self::EarlyData => ExtensionType::EarlyData,
+            Self::QkdKeyUUIDAndClientId(_) => ExtensionType::QkdKeyUUIDAndClientSAEId,
             Self::Unknown(ref r) => r.typ,
         }
     }
@@ -606,6 +608,7 @@ impl Codec for ClientExtension {
             Self::TransportParameters(ref r) | Self::TransportParametersDraft(ref r) => {
                 nested.buf.extend_from_slice(r);
             }
+            Self::QkdKeyUUIDAndClientId(ref r) => nested.buf.extend_from_slice(r),
             Self::Unknown(ref r) => r.encode(nested.buf),
         }
     }
@@ -646,6 +649,9 @@ impl Codec for ClientExtension {
                 Self::TransportParametersDraft(sub.rest().to_vec())
             }
             ExtensionType::EarlyData if !sub.any_left() => Self::EarlyData,
+            ExtensionType::QkdKeyUUIDAndClientSAEId => {
+                Self::QkdKeyUUIDAndClientId(sub.rest().to_vec())
+            },
             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
         };
 

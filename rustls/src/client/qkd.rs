@@ -41,7 +41,7 @@ pub(crate) struct ExpectTrafficQkd {
 
 impl State<ClientConnectionData> for ExpectTrafficQkd {
     fn handle(self: Box<Self>, cx: &mut Context<'_, ClientConnectionData>, message: Message) -> Result<Box<dyn State<ClientConnectionData>>, Error> {
-        println!("ExpectTrafficQkd: {:?}", message);
+        println!("ExpectTrafficQkd: {:?}, shall be encoded with {:?}", message, cx.common.qkd_retrieved_key);
         match message.payload {
             MessagePayload::ApplicationData(payload) => cx
                 .common

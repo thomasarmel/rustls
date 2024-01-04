@@ -15,7 +15,7 @@ pub(crate) struct ExpectQkdExchange {
 
 impl State<ServerConnectionData> for ExpectQkdExchange {
     fn handle(self: Box<Self>, cx: &mut Context<'_, ServerConnectionData>, message: Message) -> Result<Box<dyn State<ServerConnectionData>>, Error> {
-        println!("ExpectQkdExchange: {:?}", message);
+        println!("ExpectQkdExchange: {:?}, shall be encoded with {:?}", message, cx.common.qkd_retrieved_key);
         match message.payload {
             MessagePayload::ApplicationData(payload) => cx
                 .common
@@ -28,18 +28,6 @@ impl State<ServerConnectionData> for ExpectQkdExchange {
             }
         }
         Ok(self)
-        // Create a TCP server on port 8999 in order to receive the QKD key from the QKD server
-        // and assume that is corresponds to a real QKD key exchange.
-        /*let listener = TcpListener::bind("0.0.0.0:8999").unwrap(); // obvious security flaw :)
-        let mut stream = listener.accept().unwrap().0;
-        let mut buf = [0; 32 + 16];
-        stream.read(&mut buf).unwrap();*/
-        //let iv: [u8; 12] = [0; 12]; // Obviously, this is not secure. But it is just a demo.
-        /*cx.common.record_layer.prepare_message_encrypter(Box::new(crate::crypto::ring::tls13::Tls13MessageEncrypter {
-            enc_key: aead::LessSafeKey::new(aead::UnboundKey::new(self.0, buf.as_ref()).unwrap()),
-            iv: Iv::from(iv),
-        }));*/
-        //todo!();
     }
 }
 

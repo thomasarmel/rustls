@@ -4,6 +4,7 @@ use std::sync::Arc;
 use pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::client::ClientConnection;
 use rustls::{RootCertStore, ServerConfig};
+use rustls::qkd_config::{QkdClientConfig, QkdServerConfig};
 use rustls::server::Acceptor;
 
 #[test]
@@ -21,7 +22,14 @@ fn connect_to_unice() {
             .cloned(),
     );
     let mut config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store).with_qkd();
+        .with_root_certificates(root_store).with_qkd(
+        &QkdClientConfig::new(
+            "localhost:3000",
+            "tests/data/sae1.pfx",
+            "",
+            1,
+            2
+        )).unwrap();
 
     // Allow using SSLKEYLOGFILE.
     config.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -51,14 +59,19 @@ fn connect_to_unice() {
         ciphersuite.suite()
     ).unwrap();*/
     println!("[client] Written");
-    let mut plaintext = Vec::new();
-    tls.read_to_end(&mut plaintext).unwrap();
-    println!("[client] Read {:?}", plaintext);
-    tls.read_to_end(&mut plaintext).unwrap();
-    println!("[client] Read {:?}", plaintext);
+    let mut read_vec = Vec::new();
+
+    tls.read_to_end(&mut read_vec).unwrap();
+    let plaintext = String::from_utf8(read_vec.clone()).unwrap();
+    println!("{}", plaintext);
+
+    tls.read_to_end(&mut read_vec).unwrap();
+    let plaintext = String::from_utf8(read_vec.clone()).unwrap();
+    println!("{}", plaintext);
+
     conn.send_close_notify();
     conn.complete_io(&mut sock).unwrap();
-    assert!(plaintext.starts_with(b"HTTP/1.1 200 OK"));
+    assert!(read_vec.starts_with(b"HTTP/1.1 200 OK"));
 }
 
 #[test]
@@ -99,15 +112,18 @@ fn simple_server() {
                 conn.write_tls(&mut stream).unwrap();
                 conn.complete_io(&mut stream).unwrap();
 
-                let mut buf = [0u8; 1];
+                let mut buf = [0u8; 0xff];
                 let mut read_vec = Vec::new();
-                while let Ok(size_read) = conn.reader().read(&mut buf) {
+                while let Ok(size_read) = conn.reader().read(&mut buf) { // Ignore WouldBlock
                     if size_read == 0 {
-                        break;
+                        println!("EOF");
+                        break; // EOF
                     }
-                    read_vec.push(buf[0]);
+                    // check that buf[0] isn't EOF
+                    read_vec.extend_from_slice(&buf[..size_read]);
                 }
-                println!("{:02X?}", read_vec);
+                let read_string = String::from_utf8(read_vec).unwrap();
+                println!("{}", read_string);
 
                 conn.send_close_notify();
                 conn.write_tls(&mut stream).unwrap();
@@ -167,7 +183,13 @@ impl TestPki {
     fn server_config(self) -> Arc<ServerConfig> {
         let mut server_config = ServerConfig::builder().with_no_client_auth().with_qkd_and_single_cert(
             vec![self.server_cert_der],
-            self.server_key_der).unwrap();
+            self.server_key_der,
+            &QkdServerConfig::new(
+                "localhost:3000",
+                "tests/data/sae2.pfx",
+                "",
+                2
+            )).unwrap();
 
         server_config.key_log = Arc::new(rustls::KeyLogFile::new());
 

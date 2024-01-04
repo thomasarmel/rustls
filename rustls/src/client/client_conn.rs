@@ -28,10 +28,15 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::mem;
 use core::ops::{Deref, DerefMut};
-use std::io;
+use std::{format, io};
+use std::prelude::rust_2021::{String, ToString};
+use base64::Engine;
+use base64::engine::general_purpose;
 
 #[cfg(doc)]
 use crate::{crypto, DistinguishedName};
+use crate::Error::General;
+use crate::qkd::{QKD_KEY_SIZE_BYTES, ResponseQkdKeysList};
 
 /// A trait for the ability to store client session data, so that sessions
 /// can be resumed in future connections.
@@ -203,6 +208,18 @@ pub struct ClientConfig {
 
     /// Whether to accept QKD ciphersuites.
     pub accept_qkd: bool,
+
+    /// If qkd, this SAE id (TODO: reformat)
+    pub origin_sae_id: Option<i64>,
+
+    /// If qkd, server SAE id (TODO: reformat)
+    pub target_sae_id: Option<i64>,
+
+    /// If qkd, client to connect to KME (TODO: reformat)
+    pub kme_client: Option<reqwest::blocking::Client>,
+
+    /// If qkd, host of KME (TODO: reformat)
+    pub kme_host: Option<String>,
 }
 
 /// What mechanisms to support for resuming a TLS 1.2 session.
@@ -236,6 +253,10 @@ impl Clone for ClientConfig {
             enable_secret_extraction: self.enable_secret_extraction,
             enable_early_data: self.enable_early_data,
             accept_qkd: self.accept_qkd,
+            origin_sae_id: self.origin_sae_id,
+            target_sae_id: self.target_sae_id,
+            kme_client: self.kme_client.clone(),
+            kme_host: self.kme_host.clone(),
         }
     }
 }
@@ -661,6 +682,32 @@ impl ConnectionCore<ClientConnectionData> {
         cx.common.is_qkd = config.accept_qkd;
         cx.common.server_name = Some(name.clone());
         cx.common.client_config = Some(Arc::clone(&config));
+
+        if cx.common.is_qkd {
+            let kme_key_retrieve_url = format!(
+                "https://{}/api/v1/keys/{}/enc_keys",
+                config.kme_host.as_ref().ok_or(General("Invalid config".to_string()))?,
+                config.target_sae_id.ok_or(General("Invalid config".to_string()))?
+            );
+            // TODO: can fetch target SAE ID from server name
+            let response = config
+                .kme_client
+                .as_ref()
+                .ok_or(General("Invalid config".to_string()))?
+                .post(kme_key_retrieve_url)
+                .send().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?; // TODO: better error enum :)
+            let text_response = response.text().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
+            let retrieved_keys: ResponseQkdKeysList = serde_json::from_str(&text_response).map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
+            if retrieved_keys.keys.len() < 1 {
+                return Err(General("No key retrieved from KME server".to_string()));
+            }
+            let key_base64 = retrieved_keys.keys[0].key.clone();
+            let key_uuid = retrieved_keys.keys[0].key_ID.clone();
+            let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| General("Cannot decode retrieved key from KME server".to_string()))?[..];
+            cx.common.qkd_retrieved_key_uuid = Some(key_uuid);
+            cx.common.qkd_origin_sae_id = config.origin_sae_id;
+            cx.common.qkd_retrieved_key = Some(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| General("Cannot convert retrieved key from KME server".to_string()))?);
+        }
 
         let state = hs::start_handshake(name, extra_exts, config, &mut cx)?;
         Ok(Self::new(state, data, common_state))

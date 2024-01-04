@@ -13,6 +13,10 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use std::fs::File;
+use std::io::Read;
+use std::prelude::rust_2021::ToString;
+use crate::qkd_config::QkdServerConfig;
 
 impl ConfigBuilder<ServerConfig, WantsVerifier> {
     /// Choose how to verify client certificates.
@@ -82,7 +86,17 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         self,
         cert_chain: Vec<CertificateDer<'static>>,
         key_der: PrivateKeyDer<'static>,
+        qkd_initial_config: &QkdServerConfig,
     ) -> Result<ServerConfig, Error> {
+
+        let mut buf = Vec::new();
+        File::open(qkd_initial_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| Error::General("Cannot read client cert".to_string()))?; // TODO: Error handling
+        let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_initial_config.client_auth_certificate_password).map_err(|_| Error::General("Cannot read client cert".to_string()))?;
+        let kme_client = Some(reqwest::blocking::Client::builder()
+            .identity(client_cert_id)
+            //.danger_accept_invalid_certs(true)
+            .build().map_err(|_| Error::General("Connot create KME client".to_string()))?);
+
         let private_key = self
             .state
             .provider
@@ -105,6 +119,9 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
             accept_qkd: true,
+            sae_id: Some(qkd_initial_config.sae_id),
+            kme_host: Some(qkd_initial_config.kme_addr.to_string()),
+            kme_client,
         })
     }
 
@@ -156,6 +173,9 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
             accept_qkd: false,
+            sae_id: None,
+            kme_host: None,
+            kme_client: None,
         }
     }
 }

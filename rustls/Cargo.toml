@@ -25,6 +25,10 @@ pki-types = { package = "rustls-pki-types", version = "1", features = ["std"] }
 zeroize = "1.6.0"
 cipher = "0.4.4"
 rand = "0.8.5"
+reqwest = {version = "0.11.23", features = ["native-tls", "blocking", "json"]}
+serde = {version = "1.0.194", features = ["derive"]}
+serde_json = "1.0.111"
+base64 = "0.21.5"
 
 [features]
 default = ["logging", "ring", "tls12"]

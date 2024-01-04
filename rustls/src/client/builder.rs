@@ -15,6 +15,10 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use std::fs::File;
+use std::io::Read;
+use std::prelude::rust_2021::ToString;
+use crate::qkd_config::QkdClientConfig;
 
 impl ConfigBuilder<ClientConfig, WantsVerifier> {
     /// Choose how to verify server certificates.
@@ -160,12 +164,25 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             enable_secret_extraction: false,
             enable_early_data: false,
             accept_qkd: false,
+            origin_sae_id: None,
+            target_sae_id: None,
+            kme_client: None,
+            kme_host: None,
         }
     }
 
     /// Accepts QKD
-    pub fn with_qkd(self) -> ClientConfig {
-        ClientConfig {
+    pub fn with_qkd(self, qkd_config: &QkdClientConfig) -> Result<ClientConfig, ()> {
+
+        let mut buf = Vec::new();
+        File::open(qkd_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| ())?; // TODO: Error handling
+        let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_config.client_auth_certificate_password).map_err(|_| ())?;
+        let kme_client = Some(reqwest::blocking::Client::builder()
+            .identity(client_cert_id)
+            //.danger_accept_invalid_certs(true)
+            .build().map_err(|_| ())?);
+
+        Ok(ClientConfig {
             provider: self.state.provider,
             alpn_protocols: Vec::new(),
             resumption: Resumption::default(),
@@ -178,6 +195,10 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             enable_secret_extraction: false,
             enable_early_data: false,
             accept_qkd: true,
-        }
+            origin_sae_id: Some(qkd_config.origin_sae_id),
+            target_sae_id: Some(qkd_config.target_sae_id),
+            kme_host: Some(qkd_config.kme_addr.to_string()),
+            kme_client,
+        })
     }
 }

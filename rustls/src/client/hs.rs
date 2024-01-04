@@ -233,6 +233,13 @@ fn emit_client_hello_for_retry(
         ClientExtension::CertificateStatusRequest(CertificateStatusRequest::build_ocsp()),
     ];
 
+    if cx.common.is_qkd {
+        let mut key_uuid_and_origin_sae_id = Vec::new();
+        key_uuid_and_origin_sae_id.append(&mut cx.common.qkd_origin_sae_id.unwrap().to_be_bytes().to_vec());
+        key_uuid_and_origin_sae_id.append(&mut Vec::from(cx.common.qkd_retrieved_key_uuid.clone().unwrap()));
+        exts.push(ClientExtension::QkdKeyUUIDAndClientId(key_uuid_and_origin_sae_id));
+    }
+
     if let (ServerName::DnsName(dns), true) = (&input.server_name, config.enable_sni) {
         // We only want to send the SNI extension if the server name contains a DNS name.
         exts.push(ClientExtension::make_sni(dns));

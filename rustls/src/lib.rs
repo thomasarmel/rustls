@@ -549,3 +549,4 @@ pub mod ticketer;
 /// This is the rustls manual.
 pub mod manual;
 mod qkd;
+pub mod qkd_config;

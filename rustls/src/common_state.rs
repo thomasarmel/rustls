@@ -19,9 +19,11 @@ use crate::vecbuf::ChunkVecBuffer;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use std::prelude::rust_2021::String;
 use std::sync::Arc;
 
 use pki_types::{CertificateDer, ServerName};
+use crate::qkd::QKD_KEY_SIZE_BYTES;
 
 /// Connection state common to both client and server connections.
 pub struct CommonState {
@@ -51,6 +53,9 @@ pub struct CommonState {
     pub(crate) quic: quic::Quic,
     pub(crate) enable_secret_extraction: bool,
     pub(crate) is_qkd: bool,
+    pub(crate) qkd_retrieved_key: Option<[u8; QKD_KEY_SIZE_BYTES]>,
+    pub(crate) qkd_retrieved_key_uuid: Option<String>,
+    pub(crate) qkd_origin_sae_id: Option<i64>,
     pub(crate) server_name: Option<ServerName<'static>>,
     pub(crate) client_config: Option<Arc<crate::client::ClientConfig>>,
     pub(crate) server_config: Option<Arc<crate::server::ServerConfig>>,
@@ -82,6 +87,9 @@ impl CommonState {
             quic: quic::Quic::default(),
             enable_secret_extraction: false,
             is_qkd: false,
+            qkd_retrieved_key: None,
+            qkd_retrieved_key_uuid: None,
+            qkd_origin_sae_id: None,
             server_name: None,
             client_config: None,
             server_config: None,

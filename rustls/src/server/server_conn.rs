@@ -7,7 +7,7 @@ use crate::error::Error;
 #[cfg(feature = "logging")]
 use crate::log::trace;
 use crate::msgs::base::Payload;
-use crate::msgs::handshake::{ClientHelloPayload, ProtocolName, ServerExtension};
+use crate::msgs::handshake::{ClientExtension, ClientHelloPayload, ProtocolName, ServerExtension};
 use crate::msgs::message::Message;
 use crate::suites::ExtractedSecrets;
 use crate::vecbuf::ChunkVecBuffer;
@@ -30,10 +30,15 @@ use core::fmt;
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-use std::io;
+use std::{format, io, vec};
+use std::prelude::rust_2015::ToString;
+use std::prelude::rust_2021::String;
+use base64::Engine;
+use base64::engine::general_purpose;
 
 #[cfg(doc)]
 use crate::crypto;
+use crate::qkd::{QKD_KEY_SIZE_BYTES, RequestQkdKey, RequestQkdKeysList, ResponseQkdKeysList};
 
 /// A trait for the ability to store server session data.
 ///
@@ -318,6 +323,15 @@ pub struct ServerConfig {
 
     /// Whether to accept QKD ciphersuites.
     pub accept_qkd: bool,
+
+    /// SAE ID of the server
+    pub sae_id: Option<i64>,
+
+    /// Host/port of the KME
+    pub kme_host: Option<String>,
+
+    /// Client that will retrieve keys from KME
+    pub kme_client: Option<reqwest::blocking::Client>,
 }
 
 // Avoid a `Clone` bound on `C`.
@@ -339,6 +353,9 @@ impl Clone for ServerConfig {
             send_half_rtt_data: self.send_half_rtt_data,
             send_tls13_tickets: self.send_tls13_tickets,
             accept_qkd: self.accept_qkd,
+            sae_id: self.sae_id,
+            kme_host: self.kme_host.clone(),
+            kme_client: self.kme_client.clone(),
         }
     }
 }
@@ -719,12 +736,53 @@ impl Accepted {
         let state = hs::ExpectClientHello::new(config.clone(), Vec::new());
         let mut cx = hs::ServerContext::from(&mut self.connection);
 
+        let client_hello = Self::client_hello_payload(&self.message);
+
         let new = state.with_certified_key(
             self.sig_schemes,
-            Self::client_hello_payload(&self.message),
+            client_hello,
             &self.message,
             &mut cx,
         )?;
+
+        cx.common.server_config = Some(config.clone());
+
+        cx.common.is_qkd = config.as_ref().accept_qkd && client_hello.extensions.iter().any(|ext| {
+            if let ClientExtension::QkdKeyUUIDAndClientId(key_uuid_client_sae_id) = ext {
+                cx.common.qkd_retrieved_key_uuid = Some(std::str::from_utf8(&key_uuid_client_sae_id[8..])
+                    .unwrap().to_string()
+                );
+                let origin_sae_id_bytes: [u8; 8] = key_uuid_client_sae_id[..8]
+                    .try_into()
+                    .unwrap(); // TODO: unwrap() here is quite dangerous :)
+                cx.common.qkd_origin_sae_id = Some(i64::from_be_bytes(origin_sae_id_bytes));
+                return true;
+            }
+            false
+        });
+
+        if cx.common.is_qkd {
+            let kme_key_retrieve_url = format!(
+                "https://{}/api/v1/keys/{}/dec_keys",
+                config.kme_host.as_ref().ok_or(Error::General("Invalid config".to_string()))?,
+                cx.common.qkd_origin_sae_id.ok_or(Error::General("Invalid config".to_string()))?
+            );
+            let request_body_qkd_uuids: RequestQkdKeysList = RequestQkdKeysList {
+                key_IDs: vec![
+                    RequestQkdKey {
+                        key_ID: cx.common.qkd_retrieved_key_uuid.clone().unwrap()
+                    }
+                ],
+            };
+            let response = cx.common.server_config.as_ref().unwrap().kme_client.as_ref().unwrap().post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
+            let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
+            if response_keys.keys.len() < 1 {
+                return Err(Error::General("No key retrieved from KME server".to_string()));
+            }
+            let key_base64 = response_keys.keys[0].key.clone();
+            let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| Error::General("Cannot decode retrieved key from KME server".to_string()))?[..];
+            cx.common.qkd_retrieved_key = Some(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| Error::General("Cannot convert retrieved key from KME server".to_string()))?);
+        }
 
         self.connection.replace_state(new);
         Ok(ServerConnection {
