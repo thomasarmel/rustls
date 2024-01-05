@@ -27,7 +27,6 @@ fn connect_to_unice() {
             "localhost:3000",
             "tests/data/sae1.pfx",
             "",
-            1,
             2
         )).unwrap();
 
@@ -187,8 +186,7 @@ impl TestPki {
             &QkdServerConfig::new(
                 "localhost:3000",
                 "tests/data/sae2.pfx",
-                "",
-                2
+                ""
             )).unwrap();
 
         server_config.key_log = Arc::new(rustls::KeyLogFile::new());

@@ -15,9 +15,11 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use std::format;
 use std::fs::File;
 use std::io::Read;
 use std::prelude::rust_2021::ToString;
+use crate::qkd::ResponseQkdSAEInfo;
 use crate::qkd_config::QkdClientConfig;
 
 impl ConfigBuilder<ClientConfig, WantsVerifier> {
@@ -182,6 +184,14 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             //.danger_accept_invalid_certs(true)
             .build().map_err(|_| ())?);
 
+        // Retrieve current SAE ID
+        let this_sae_info_response = kme_client.as_ref().unwrap()
+            .get(&format!("https://{}/api/v1/sae/info/me", qkd_config.kme_addr))
+            .send()
+            .map_err(|_| ())?
+            .text().map_err(|_| ())?;
+        let this_sae_info_obj: ResponseQkdSAEInfo = serde_json::from_str(&this_sae_info_response).map_err(|_| ())?;
+
         Ok(ClientConfig {
             provider: self.state.provider,
             alpn_protocols: Vec::new(),
@@ -195,7 +205,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             enable_secret_extraction: false,
             enable_early_data: false,
             accept_qkd: true,
-            origin_sae_id: Some(qkd_config.origin_sae_id),
+            origin_sae_id: Some(this_sae_info_obj.SAE_ID),
             target_sae_id: Some(qkd_config.target_sae_id),
             kme_host: Some(qkd_config.kme_addr.to_string()),
             kme_client,

@@ -119,7 +119,6 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
             accept_qkd: true,
-            sae_id: Some(qkd_initial_config.sae_id),
             kme_host: Some(qkd_initial_config.kme_addr.to_string()),
             kme_client,
         })
@@ -173,7 +172,6 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
             accept_qkd: false,
-            sae_id: None,
             kme_host: None,
             kme_client: None,
         }

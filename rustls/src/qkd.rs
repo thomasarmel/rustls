@@ -69,6 +69,13 @@ pub(crate) struct ResponseQkdKeysList {
     pub(crate) keys: Vec<ResponseQkdKey>,
 }
 
+/// SAE information (id)
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+pub(crate) struct ResponseQkdSAEInfo {
+    pub(crate) SAE_ID: i64,
+}
+
 #[derive(Serialize, Debug)]
 #[allow(non_snake_case)]
 pub(crate) struct RequestQkdKey {

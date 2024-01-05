@@ -324,9 +324,6 @@ pub struct ServerConfig {
     /// Whether to accept QKD ciphersuites.
     pub accept_qkd: bool,
 
-    /// SAE ID of the server
-    pub sae_id: Option<i64>,
-
     /// Host/port of the KME
     pub kme_host: Option<String>,
 
@@ -353,7 +350,6 @@ impl Clone for ServerConfig {
             send_half_rtt_data: self.send_half_rtt_data,
             send_tls13_tickets: self.send_tls13_tickets,
             accept_qkd: self.accept_qkd,
-            sae_id: self.sae_id,
             kme_host: self.kme_host.clone(),
             kme_client: self.kme_client.clone(),
         }

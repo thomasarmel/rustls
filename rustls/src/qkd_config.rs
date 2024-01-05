@@ -6,18 +6,16 @@ pub struct QkdClientConfig<'a> {
     pub(crate) kme_addr: &'a str,
     pub(crate) client_auth_certificate_path: &'a str,
     pub(crate) client_auth_certificate_password: &'a str,
-    pub(crate) origin_sae_id: i64,
     pub(crate) target_sae_id: i64
 }
 
 impl<'a> QkdClientConfig<'a> {
     /// Create a new QKD configuration
-    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str, origin_sae_id: i64, target_sae_id: i64) -> QkdClientConfig<'a> {
+    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str, target_sae_id: i64) -> QkdClientConfig<'a> {
         Self {
             kme_addr,
             client_auth_certificate_path,
             client_auth_certificate_password,
-            origin_sae_id,
             target_sae_id
         }
     }
@@ -27,18 +25,16 @@ impl<'a> QkdClientConfig<'a> {
 pub struct QkdServerConfig<'a> {
     pub(crate) kme_addr: &'a str,
     pub(crate) client_auth_certificate_path: &'a str,
-    pub(crate) client_auth_certificate_password: &'a str,
-    pub(crate) sae_id: i64
+    pub(crate) client_auth_certificate_password: &'a str
 }
 
 impl<'a> QkdServerConfig<'a> {
     /// Create a new QKD configuration
-    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str, sae_id: i64) -> QkdServerConfig<'a> {
+    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str) -> QkdServerConfig<'a> {
         Self {
             kme_addr,
             client_auth_certificate_path,
             client_auth_certificate_password,
-            sae_id
         }
     }
 }
