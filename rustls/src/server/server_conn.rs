@@ -738,13 +738,6 @@ impl Accepted {
 
         let client_hello = Self::client_hello_payload(&self.message);
 
-        let new = state.with_certified_key(
-            self.sig_schemes,
-            client_hello,
-            &self.message,
-            &mut cx,
-        )?;
-
         cx.common.server_config = Some(config.clone());
 
         cx.common.is_qkd = config.as_ref().accept_qkd && client_hello.extensions.iter().any(|ext| {
@@ -783,6 +776,13 @@ impl Accepted {
             let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| Error::General("Cannot decode retrieved key from KME server".to_string()))?[..];
             cx.common.qkd_retrieved_key = Some(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| Error::General("Cannot convert retrieved key from KME server".to_string()))?);
         }
+
+        let new = state.with_certified_key(
+            self.sig_schemes,
+            client_hello,
+            &self.message,
+            &mut cx,
+        )?;
 
         self.connection.replace_state(new);
         Ok(ServerConnection {

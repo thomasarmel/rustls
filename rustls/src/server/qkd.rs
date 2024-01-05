@@ -31,8 +31,7 @@ impl State<ServerConnectionData> for ExpectQkdExchange {
     }
 }
 
-pub(crate) fn receive_qkd_key(cx: &mut ServerContext) {
-    // receive key here !!
+pub(crate) fn set_qkd_encrypter_and_decrypter(cx: &mut ServerContext) {
     cx.common.record_layer.set_message_decrypter(Box::new(
         crate::qkd::QkdDecrypter::new(
             &[0; 32],

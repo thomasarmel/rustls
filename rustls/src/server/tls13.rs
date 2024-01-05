@@ -39,7 +39,7 @@ use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
 
 pub(super) use client_hello::CompleteClientHelloHandling;
-use crate::server::qkd::{ExpectQkdExchange, receive_qkd_key};
+use crate::server::qkd::{ExpectQkdExchange, set_qkd_encrypter_and_decrypter};
 
 mod client_hello {
     use crate::crypto::SupportedKxGroup;
@@ -243,7 +243,7 @@ mod client_hello {
                             cx.common,
                             group.name(),
                         );
-                        if !self.config.accept_qkd {
+                        if !cx.common.is_qkd {
                             emit_fake_ccs(cx.common);
                         }
                         let skip_early_data = max_early_data_size(self.config.max_early_data_size);
@@ -374,7 +374,7 @@ mod client_hello {
                 &self.config,
             )?;
 
-            if !self.done_retry && !self.config.accept_qkd {
+            if !self.done_retry && !cx.common.is_qkd {
                 emit_fake_ccs(cx.common);
             }
 
@@ -441,8 +441,8 @@ mod client_hello {
                 &self.config,
             );
 
-            if self.config.accept_qkd {
-                receive_qkd_key(cx);
+            if cx.common.is_qkd {
+                set_qkd_encrypter_and_decrypter(cx);
                 return Ok(
                     Box::new(ExpectQkdExchange {
                         config: self.config,
