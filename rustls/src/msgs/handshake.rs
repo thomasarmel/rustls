@@ -708,6 +708,7 @@ pub enum ServerExtension {
     TransportParameters(Vec<u8>),
     TransportParametersDraft(Vec<u8>),
     EarlyData,
+    QkdAcknowledgment(Vec<u8>),
     Unknown(UnknownExtension),
 }
 
@@ -727,6 +728,7 @@ impl ServerExtension {
             Self::TransportParameters(_) => ExtensionType::TransportParameters,
             Self::TransportParametersDraft(_) => ExtensionType::TransportParametersDraft,
             Self::EarlyData => ExtensionType::EarlyData,
+            Self::QkdAcknowledgment(_) => ExtensionType::QkdServerAck,
             Self::Unknown(ref r) => r.typ,
         }
     }
@@ -752,6 +754,7 @@ impl Codec for ServerExtension {
             Self::TransportParameters(ref r) | Self::TransportParametersDraft(ref r) => {
                 nested.buf.extend_from_slice(r);
             }
+            Self::QkdAcknowledgment(ref r) => nested.buf.extend_from_slice(r),
             Self::Unknown(ref r) => r.encode(nested.buf),
         }
     }
@@ -779,6 +782,7 @@ impl Codec for ServerExtension {
                 Self::TransportParametersDraft(sub.rest().to_vec())
             }
             ExtensionType::EarlyData => Self::EarlyData,
+            ExtensionType::QkdServerAck => Self::QkdAcknowledgment(sub.rest().to_vec()),
             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
         };
 

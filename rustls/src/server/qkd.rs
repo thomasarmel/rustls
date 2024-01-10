@@ -31,15 +31,16 @@ impl State<ServerConnectionData> for ExpectQkdExchange {
 
 pub(crate) fn set_qkd_encrypter_and_decrypter(cx: &mut ServerContext) {
     let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
+    let iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
     cx.common.record_layer.set_message_decrypter(Box::new(
         crate::qkd::QkdDecrypter::new(
             key,
-            &[0; crate::qkd::QkdDecrypter::IV_SIZE]))
+            iv))
     );
     cx.common.record_layer.set_message_encrypter(Box::new(
         crate::qkd::QkdEncrypter::new(
             key,
-            &[0; crate::qkd::QkdEncrypter::IV_SIZE]))
+            iv))
     );
     cx.common.start_traffic();
 }

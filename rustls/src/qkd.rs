@@ -7,16 +7,15 @@ use crate::{ContentType, Error, ProtocolVersion};
 use crate::msgs::codec::Codec;
 
 pub(crate) const QKD_KEY_SIZE_BYTES: usize = 32;
+pub(crate) const QKD_IV_SIZE_BYTES: usize = 12;
 
 pub(crate) struct QkdEncrypter {
     key: ring::aead::LessSafeKey,
     iv: crate::crypto::cipher::Iv,
 }
 impl QkdEncrypter {
-    pub(crate) const KEY_SIZE: usize = 32;
-    pub(crate) const IV_SIZE: usize = 12;
 
-    pub(crate) fn new(key: &[u8; Self::KEY_SIZE], iv: &[u8; Self::IV_SIZE]) -> Self {
+    pub(crate) fn new(key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES]) -> Self {
         let key = ring::aead::LessSafeKey::new(UnboundKey::new(&ring::aead::AES_256_GCM, key).unwrap());
         Self { key, iv: crate::crypto::cipher::Iv::new(iv.to_owned()) }
     }
@@ -53,9 +52,7 @@ pub(crate) struct QkdDecrypter {
 }
 
 impl QkdDecrypter {
-    pub(crate) const KEY_SIZE: usize = 32;
-    pub(crate) const IV_SIZE: usize = 12;
-    pub(crate) fn new(key: &[u8; Self::KEY_SIZE], iv: &[u8; Self::IV_SIZE]) -> Self {
+    pub(crate) fn new(key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES]) -> Self {
         let key = ring::aead::LessSafeKey::new(UnboundKey::new(&ring::aead::AES_256_GCM, key).unwrap());
         Self { key, iv: crate::crypto::cipher::Iv::new(iv.to_owned()) }
     }
@@ -112,4 +109,11 @@ pub(crate) struct RequestQkdKey {
 #[allow(non_snake_case)]
 pub(crate) struct RequestQkdKeysList {
     pub(crate) key_IDs: Vec<RequestQkdKey>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct QkdTlsRequestExtension {
+    pub(crate) key_uuid: String,
+    pub(crate) origin_sae_id: i64,
+    pub(crate) iv: [u8; QKD_IV_SIZE_BYTES],
 }

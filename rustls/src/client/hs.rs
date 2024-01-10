@@ -38,6 +38,8 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
+use ring::rand::SecureRandom;
+use crate::crypto::ring::ring_like;
 
 pub(super) type NextState = Box<dyn State<ClientConnectionData>>;
 pub(super) type NextStateOrError = Result<NextState, Error>;
@@ -234,10 +236,17 @@ fn emit_client_hello_for_retry(
     ];
 
     if cx.common.is_qkd {
-        let mut key_uuid_and_origin_sae_id = Vec::new();
-        key_uuid_and_origin_sae_id.append(&mut cx.common.qkd_origin_sae_id.unwrap().to_be_bytes().to_vec());
-        key_uuid_and_origin_sae_id.append(&mut Vec::from(cx.common.qkd_retrieved_key_uuid.clone().unwrap()));
-        exts.push(ClientExtension::QkdKeyUUIDAndClientId(key_uuid_and_origin_sae_id));
+        let mut random_iv = [0u8; crate::qkd::QKD_IV_SIZE_BYTES];
+        let _ = ring_like::rand::SystemRandom::new().fill(&mut random_iv).unwrap();
+        cx.common.qkd_negociated_iv = Some(random_iv.to_owned());
+
+        let ext = crate::qkd::QkdTlsRequestExtension {
+            key_uuid: cx.common.qkd_retrieved_key_uuid.to_owned().unwrap(),
+            origin_sae_id: cx.common.qkd_origin_sae_id.unwrap(),
+            iv: random_iv,
+        };
+        let qkd_tls_extension_data = postcard::to_allocvec(&ext).unwrap();
+        exts.push(ClientExtension::QkdKeyUUIDAndClientId(qkd_tls_extension_data));
     }
 
     if let (ServerName::DnsName(dns), true) = (&input.server_name, config.enable_sni) {

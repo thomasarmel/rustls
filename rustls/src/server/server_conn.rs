@@ -736,41 +736,23 @@ impl Accepted {
 
         cx.common.server_config = Some(config.clone());
 
-        cx.common.is_qkd = config.as_ref().accept_qkd && client_hello.extensions.iter().any(|ext| {
-            if let ClientExtension::QkdKeyUUIDAndClientId(key_uuid_client_sae_id) = ext {
-                cx.common.qkd_retrieved_key_uuid = Some(std::str::from_utf8(&key_uuid_client_sae_id[8..])
-                    .unwrap().to_string()
-                );
-                let origin_sae_id_bytes: [u8; 8] = key_uuid_client_sae_id[..8]
-                    .try_into()
-                    .unwrap(); // TODO: unwrap() here is quite dangerous :)
-                cx.common.qkd_origin_sae_id = Some(i64::from_be_bytes(origin_sae_id_bytes));
-                return true;
+
+        cx.common.is_qkd = false;
+        if config.as_ref().accept_qkd {
+            for client_extension in client_hello.extensions.iter() {
+                if let ClientExtension::QkdKeyUUIDAndClientId(key_uuid_client_sae_id) = client_extension {
+                    let qkd_tls_request_ext: crate::qkd::QkdTlsRequestExtension = postcard::from_bytes(&key_uuid_client_sae_id).unwrap();
+                    cx.common.qkd_retrieved_key_uuid = Some(qkd_tls_request_ext.key_uuid);
+                    cx.common.qkd_origin_sae_id = Some(qkd_tls_request_ext.origin_sae_id);
+                    cx.common.qkd_negociated_iv = Some(qkd_tls_request_ext.iv);
+                    cx.common.is_qkd = true;
+                    break;
+                }
             }
-            false
-        });
+        }
 
         if cx.common.is_qkd {
-            let kme_key_retrieve_url = format!(
-                "https://{}/api/v1/keys/{}/dec_keys",
-                config.kme_host.as_ref().ok_or(Error::General("Invalid config".to_string()))?,
-                cx.common.qkd_origin_sae_id.ok_or(Error::General("Invalid config".to_string()))?
-            );
-            let request_body_qkd_uuids: RequestQkdKeysList = RequestQkdKeysList {
-                key_IDs: vec![
-                    RequestQkdKey {
-                        key_ID: cx.common.qkd_retrieved_key_uuid.clone().unwrap()
-                    }
-                ],
-            };
-            let response = cx.common.server_config.as_ref().unwrap().kme_client.as_ref().unwrap().post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
-            let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
-            if response_keys.keys.len() < 1 {
-                return Err(Error::General("No key retrieved from KME server".to_string()));
-            }
-            let key_base64 = response_keys.keys[0].key.clone();
-            let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| Error::General("Cannot decode retrieved key from KME server".to_string()))?[..];
-            cx.common.qkd_retrieved_key = Some(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| Error::General("Cannot convert retrieved key from KME server".to_string()))?);
+            cx.common.qkd_retrieved_key = Some(Self::retrieve_qkd_key_from_uuid(&mut cx, &config)?);
         }
 
         let new = state.with_certified_key(
@@ -795,6 +777,29 @@ impl Accepted {
             },
             _ => unreachable!(),
         }
+    }
+
+    fn retrieve_qkd_key_from_uuid(cx: &mut Context<ServerConnectionData>, config: &Arc<ServerConfig>) -> Result<[u8; QKD_KEY_SIZE_BYTES], Error> {
+        let kme_key_retrieve_url = format!(
+            "https://{}/api/v1/keys/{}/dec_keys",
+            config.kme_host.as_ref().ok_or(Error::General("Invalid config".to_string()))?,
+            cx.common.qkd_origin_sae_id.ok_or(Error::General("Invalid config".to_string()))?
+        );
+        let request_body_qkd_uuids: RequestQkdKeysList = RequestQkdKeysList {
+            key_IDs: vec![
+                RequestQkdKey {
+                    key_ID: cx.common.qkd_retrieved_key_uuid.clone().unwrap()
+                }
+            ],
+        };
+        let response = cx.common.server_config.as_ref().unwrap().kme_client.as_ref().unwrap().post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
+        let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
+        if response_keys.keys.len() < 1 {
+            return Err(Error::General("No key retrieved from KME server".to_string()));
+        }
+        let key_base64 = response_keys.keys[0].key.clone();
+        let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| Error::General("Cannot decode retrieved key from KME server".to_string()))?[..];
+        Ok(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| Error::General("Cannot convert retrieved key from KME server".to_string()))?)
     }
 }
 

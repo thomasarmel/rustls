@@ -115,7 +115,8 @@ enum_builder! {
         ChannelId => 0x754f,
         RenegotiationInfo => 0xff01,
         TransportParametersDraft => 0xffa5,
-        QkdKeyUUIDAndClientSAEId => 0xfea6
+        QkdKeyUUIDAndClientSAEId => 0xfea6,
+        QkdServerAck => 0xfea7
     }
 }
 
