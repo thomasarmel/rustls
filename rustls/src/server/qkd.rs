@@ -1,5 +1,4 @@
 use std::prelude::rust_2015::Box;
-use std::println;
 use std::sync::Arc;
 use crate::common_state::{Context, State};
 use crate::msgs::message::{Message, MessagePayload};
@@ -15,7 +14,6 @@ pub(crate) struct ExpectQkdExchange {
 
 impl State<ServerConnectionData> for ExpectQkdExchange {
     fn handle(self: Box<Self>, cx: &mut Context<'_, ServerConnectionData>, message: Message) -> Result<Box<dyn State<ServerConnectionData>>, Error> {
-        println!("ExpectQkdExchange: {:?}, shall be encoded with {:?}", message, cx.common.qkd_retrieved_key);
         match message.payload {
             MessagePayload::ApplicationData(payload) => cx
                 .common
@@ -32,15 +30,16 @@ impl State<ServerConnectionData> for ExpectQkdExchange {
 }
 
 pub(crate) fn set_qkd_encrypter_and_decrypter(cx: &mut ServerContext) {
+    let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
     cx.common.record_layer.set_message_decrypter(Box::new(
         crate::qkd::QkdDecrypter::new(
-            &[0; 32],
-            &[0; 16]))
+            key,
+            &[0; crate::qkd::QkdDecrypter::IV_SIZE]))
     );
     cx.common.record_layer.set_message_encrypter(Box::new(
         crate::qkd::QkdEncrypter::new(
-            &[0; 32],
-            &[0; 16]))
+            key,
+            &[0; crate::qkd::QkdEncrypter::IV_SIZE]))
     );
     cx.common.start_traffic();
 }

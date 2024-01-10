@@ -9,12 +9,7 @@ use rustls::server::Acceptor;
 
 #[test]
 fn connect_to_unice() {
-    // run simple_server() in another thread
-    /*std::thread::spawn(|| {
-        simple_server();
-    });*/
     const HOST: &'static str = "localhost";
-    std::thread::sleep(std::time::Duration::from_millis(20));
     let mut root_store = RootCertStore::empty();
     root_store.extend(
         webpki_roots::TLS_SERVER_ROOTS
