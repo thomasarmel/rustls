@@ -8,7 +8,7 @@ use rustls::qkd_config::{QkdClientConfig, QkdServerConfig};
 use rustls::server::Acceptor;
 
 #[test]
-fn connect_to_unice() {
+fn connect_to_local_qkd() {
     const HOST: &'static str = "localhost";
     let mut root_store = RootCertStore::empty();
     root_store.extend(
@@ -43,15 +43,6 @@ fn connect_to_unice() {
     let result = tls.write_all(bytes_written);
     result.unwrap();
 
-    /*let ciphersuite = tls
-        .conn
-        .negotiated_cipher_suite()
-        .unwrap();
-    writeln!(
-        &mut std::io::stderr(),
-        "Current ciphersuite: {:?}",
-        ciphersuite.suite()
-    ).unwrap();*/
     println!("[client] Written");
     let mut read_vec = Vec::new();
 
@@ -66,6 +57,58 @@ fn connect_to_unice() {
     conn.send_close_notify();
     conn.complete_io(&mut sock).unwrap();
     assert!(read_vec.starts_with(b"HTTP/1.1 200 OK"));
+}
+
+#[test]
+fn connect_to_wikipedia() {
+    const HOST: &'static str = "fr.wikipedia.org";
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(
+        webpki_roots::TLS_SERVER_ROOTS
+            .iter()
+            .cloned(),
+    );
+    let mut config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store).with_qkd(
+        &QkdClientConfig::new(
+            "localhost:3000",
+            "tests/data/sae1.pfx",
+            "",
+            2
+        )).unwrap();
+
+    // Allow using SSLKEYLOGFILE.
+    config.key_log = Arc::new(rustls::KeyLogFile::new());
+
+    let server_name = HOST.try_into().unwrap();
+    let mut conn = ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut sock = TcpStream::connect(format!("{}:443", HOST)).unwrap();
+    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+    let bytes_written = concat!(
+    "GET / HTTP/1.1\r\n",
+    "Host: fr.wikipedia.org\r\n",
+    "Connection: close\r\n",
+    "Accept-Encoding: identity\r\n",
+    "\r\n"
+    )
+        .as_bytes();
+    let result = tls.write_all(bytes_written);
+    result.unwrap();
+
+    println!("[client] Written");
+    let mut read_vec = Vec::new();
+
+    tls.read_to_end(&mut read_vec).unwrap();
+    let plaintext = String::from_utf8(read_vec.clone()).unwrap();
+    println!("{}", plaintext);
+
+    tls.read_to_end(&mut read_vec).unwrap();
+    let plaintext = String::from_utf8(read_vec.clone()).unwrap();
+    println!("{}", plaintext);
+
+    conn.send_close_notify();
+    conn.complete_io(&mut sock).unwrap();
+    assert!(read_vec.starts_with(b"HTTP/1.1 301 Moved Permanently"));
 }
 
 #[test]

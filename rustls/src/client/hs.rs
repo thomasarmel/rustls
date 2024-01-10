@@ -235,7 +235,7 @@ fn emit_client_hello_for_retry(
         ClientExtension::CertificateStatusRequest(CertificateStatusRequest::build_ocsp()),
     ];
 
-    if cx.common.is_qkd {
+    if config.accept_qkd {
         let mut random_iv = [0u8; crate::qkd::QKD_IV_SIZE_BYTES];
         let _ = ring_like::rand::SystemRandom::new().fill(&mut random_iv).unwrap();
         cx.common.qkd_negociated_iv = Some(random_iv.to_owned());
@@ -560,7 +560,7 @@ impl State<ClientConnectionData> for ExpectServerHello {
             ));
         }
 
-        let allowed_unsolicited = [ExtensionType::RenegotiationInfo];
+        let allowed_unsolicited = [ExtensionType::RenegotiationInfo, ExtensionType::QkdServerAck];
         if self
             .input
             .hello

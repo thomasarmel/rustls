@@ -679,11 +679,10 @@ impl ConnectionCore<ClientConnectionData> {
             data: &mut data,
         };
 
-        cx.common.is_qkd = config.accept_qkd;
         cx.common.server_name = Some(name.clone());
         cx.common.client_config = Some(Arc::clone(&config));
 
-        if cx.common.is_qkd {
+        if config.accept_qkd {
             let kme_key_retrieve_url = format!(
                 "https://{}/api/v1/keys/{}/enc_keys",
                 config.kme_host.as_ref().ok_or(General("Invalid config".to_string()))?,

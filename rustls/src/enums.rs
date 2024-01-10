@@ -83,7 +83,8 @@ enum_builder! {
         Alert => 0x15,
         Handshake => 0x16,
         ApplicationData => 0x17,
-        Heartbeat => 0x18
+        Heartbeat => 0x18,
+        QkdKeyChallenge => 0x50
     }
 }
 

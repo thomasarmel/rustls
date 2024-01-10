@@ -42,6 +42,7 @@ pub(super) use client_hello::CompleteClientHelloHandling;
 use crate::server::qkd::{ExpectQkdExchange, set_qkd_encrypter_and_decrypter};
 
 mod client_hello {
+    use crate::crypto::cipher::MessageEncrypter;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
     use crate::msgs::base::{Payload, PayloadU8};
@@ -62,6 +63,7 @@ mod client_hello {
     use crate::msgs::handshake::ServerExtension;
     use crate::msgs::handshake::ServerHelloPayload;
     use crate::msgs::handshake::SessionId;
+    use crate::qkd::QkdEncrypter;
     use crate::server::common::ActiveCertifiedKey;
     use crate::sign;
     use crate::tls13::key_schedule::{
@@ -511,6 +513,20 @@ mod client_hello {
         let kse = KeyShareEntry::new(share.group, kx.pub_key());
         extensions.push(ServerExtension::KeyShare(kse));
         extensions.push(ServerExtension::SupportedVersions(ProtocolVersion::TLSv1_3));
+
+        if cx.common.is_qkd {
+            let server_qkd_challenge = crate::qkd::QkdChallenge::new();
+            let qkd_client_random_challenge = QkdEncrypter::new(
+                &cx.common.qkd_retrieved_key.as_ref().unwrap(),
+                &cx.common.qkd_negociated_iv.as_ref().unwrap(),
+            ).encrypt(crate::msgs::message::BorrowedPlainMessage {
+                typ: ContentType::QkdKeyChallenge,
+                version: ProtocolVersion::QKDv1_0,
+                payload: postcard::to_allocvec(&server_qkd_challenge).unwrap().as_ref(),
+            }, 0).unwrap();
+
+            extensions.push(ServerExtension::QkdAcknowledgment(qkd_client_random_challenge.payload().to_vec()));
+        }
 
         if let Some(psk_idx) = chosen_psk_idx {
             extensions.push(ServerExtension::PresharedKey(psk_idx as u16));

@@ -1,6 +1,7 @@
 use std::prelude::rust_2015::{String, Vec};
 use std::prelude::rust_2021::ToOwned;
 use ring::aead::UnboundKey;
+use ring::rand::SecureRandom;
 use serde::{Deserialize, Serialize};
 use crate::crypto::cipher::{BorrowedPlainMessage, make_tls13_aad, MessageDecrypter, MessageEncrypter, Nonce, OpaqueMessage, PlainMessage};
 use crate::{ContentType, Error, ProtocolVersion};
@@ -116,4 +117,28 @@ pub(crate) struct QkdTlsRequestExtension {
     pub(crate) key_uuid: String,
     pub(crate) origin_sae_id: i64,
     pub(crate) iv: [u8; QKD_IV_SIZE_BYTES],
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct QkdChallenge {
+    pub(crate) challenge: [u8; Self::CHALLENGE_SIZE],
+    pub(crate) random_seed: [u8; Self::RANDOM_SEED_SIZE],
+}
+
+impl QkdChallenge {
+    pub(crate) const CHALLENGE_SIZE: usize = 32;
+    pub(crate) const RANDOM_SEED_SIZE: usize = 32;
+
+    pub(crate) fn new() -> Self {
+        let mut challenge = [0u8; Self::CHALLENGE_SIZE];
+        let mut random_seed = [0u8; Self::RANDOM_SEED_SIZE];
+        let system_random = ring::rand::SystemRandom::new();
+        system_random.fill(&mut challenge).unwrap();
+        system_random.fill(&mut random_seed).unwrap();
+        Self { challenge, random_seed }
+    }
+
+    fn check_correspondence(&self, other: &Self) -> bool {
+        self.challenge == other.challenge
+    }
 }

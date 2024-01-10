@@ -54,6 +54,7 @@ static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[
     ExtensionType::KeyShare,
     ExtensionType::PreSharedKey,
     ExtensionType::SupportedVersions,
+    ExtensionType::QkdServerAck,
 ];
 
 // Only the intersection of things we offer, and those disallowed
@@ -172,6 +173,16 @@ pub(super) fn handle_server_hello(
         &randoms.client,
         cx.common,
     );
+
+    cx.common.is_qkd = false;
+    if config.accept_qkd {
+        for ext in server_hello.extensions.iter() {
+            if let ServerExtension::QkdAcknowledgment(qkd_server_ack_data) = ext {
+                cx.common.is_qkd = true;
+                break;
+            }
+        }
+    }
 
     if !config.accept_qkd {
         emit_fake_ccs(&mut sent_tls13_fake_ccs, cx.common);
@@ -350,7 +361,7 @@ fn validate_encrypted_extensions(
         ));
     }
 
-    if hello.server_sent_unsolicited_extensions(exts, &[]) {
+    if hello.server_sent_unsolicited_extensions(exts, &[ExtensionType::QkdServerAck]) {
         return Err(common.send_fatal_alert(
             AlertDescription::UnsupportedExtension,
             PeerMisbehaved::UnsolicitedEncryptedExtension,
