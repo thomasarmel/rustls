@@ -534,6 +534,10 @@ impl<Data> ConnectionCommon<Data> {
         self.sendable_tls.write_to(wr)
     }
 
+    pub(crate) fn write_pre_sendable_qkd_server_hello(&mut self, wr: &mut dyn io::Write) -> Result<usize, io::Error> {
+        self.pre_sendable_qkd_server_hello.write_to(wr)
+    }
+
     /// Derives key material from the agreed connection secrets.
     ///
     /// This function fills in `output` with `output.len()` bytes of key

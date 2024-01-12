@@ -4,7 +4,7 @@ use std::sync::Arc;
 use pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::client::ClientConnection;
 use rustls::{RootCertStore, ServerConfig};
-use rustls::qkd_config::{QkdClientConfig, QkdServerConfig};
+use rustls::qkd_config::{QkdClientConfig, QkdInitialServerConfig};
 use rustls::server::Acceptor;
 
 #[test]
@@ -127,8 +127,9 @@ fn simple_server() {
             }
         };
 
-        match accepted.into_connection(server_config.clone()) {
-            Ok(mut conn) => {
+        match accepted.into_qkd_connection(server_config.clone()) {
+            Ok(conn) => {
+                let mut conn = conn.complete_qkd_ack(&mut stream.try_clone().unwrap(), &mut stream.try_clone().unwrap());
                 let msg = concat!(
                 "HTTP/1.1 200 OK\r\n",
                 "Connection: Closed\r\n",
@@ -217,17 +218,17 @@ impl TestPki {
         }
     }
 
-    fn server_config(self) -> Arc<ServerConfig> {
+    fn server_config(self) -> Arc<rustls::server::qkd::QkdServerConfig> {
         let mut server_config = ServerConfig::builder().with_no_client_auth().with_qkd_and_single_cert(
             vec![self.server_cert_der],
             self.server_key_der,
-            &QkdServerConfig::new(
+            &QkdInitialServerConfig::new(
                 "localhost:3000",
                 "tests/data/sae2.pfx",
                 ""
             )).unwrap();
 
-        server_config.key_log = Arc::new(rustls::KeyLogFile::new());
+        server_config.set_key_log(Arc::new(rustls::KeyLogFile::new()));
 
         Arc::new(server_config)
     }

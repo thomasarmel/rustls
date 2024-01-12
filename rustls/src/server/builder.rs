@@ -16,7 +16,7 @@ use core::marker::PhantomData;
 use std::fs::File;
 use std::io::Read;
 use std::prelude::rust_2021::ToString;
-use crate::qkd_config::QkdServerConfig;
+use crate::qkd_config::QkdInitialServerConfig;
 
 impl ConfigBuilder<ServerConfig, WantsVerifier> {
     /// Choose how to verify client certificates.
@@ -86,8 +86,8 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         self,
         cert_chain: Vec<CertificateDer<'static>>,
         key_der: PrivateKeyDer<'static>,
-        qkd_initial_config: &QkdServerConfig,
-    ) -> Result<ServerConfig, Error> {
+        qkd_initial_config: &QkdInitialServerConfig,
+    ) -> Result<crate::server::qkd::QkdServerConfig, Error> {
 
         let mut buf = Vec::new();
         File::open(qkd_initial_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| Error::General("Cannot read client cert".to_string()))?; // TODO: Error handling
@@ -103,7 +103,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             .key_provider
             .load_private_key(key_der)?;
         let resolver = handy::AlwaysResolvesChain::new(private_key, CertificateChain(cert_chain));
-        Ok(ServerConfig {
+        let qkd_server_config = crate::server::qkd::QkdServerConfig::new(ServerConfig {
             provider: self.state.provider,
             verifier: self.state.verifier,
             cert_resolver: Arc::new(resolver),
@@ -121,7 +121,8 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             accept_qkd: true,
             kme_host: Some(qkd_initial_config.kme_addr.to_string()),
             kme_client,
-        })
+        });
+        Ok(qkd_server_config)
     }
 
     /// Sets a single certificate chain, matching private key and optional OCSP

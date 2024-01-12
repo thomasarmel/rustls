@@ -20,6 +20,7 @@ pub enum MessagePayload {
     },
     ChangeCipherSpec(ChangeCipherSpecPayload),
     ApplicationData(Payload),
+    QkdKeyChallenge(Payload),
 }
 
 impl MessagePayload {
@@ -29,6 +30,7 @@ impl MessagePayload {
             Self::Handshake { encoded, .. } => bytes.extend(&encoded.0),
             Self::ChangeCipherSpec(x) => x.encode(bytes),
             Self::ApplicationData(x) => x.encode(bytes),
+            Self::QkdKeyChallenge(x) => x.encode(bytes),
         }
     }
 
@@ -57,6 +59,7 @@ impl MessagePayload {
             ContentType::ChangeCipherSpec => {
                 ChangeCipherSpecPayload::read(&mut r).map(MessagePayload::ChangeCipherSpec)
             }
+            ContentType::QkdKeyChallenge => Ok(Self::QkdKeyChallenge(payload)),
             _ => Err(InvalidMessage::InvalidContentType),
         }
     }
@@ -67,6 +70,7 @@ impl MessagePayload {
             Self::Handshake { .. } => ContentType::Handshake,
             Self::ChangeCipherSpec(_) => ContentType::ChangeCipherSpec,
             Self::ApplicationData(_) => ContentType::ApplicationData,
+            Self::QkdKeyChallenge(_) => ContentType::QkdKeyChallenge,
         }
     }
 }

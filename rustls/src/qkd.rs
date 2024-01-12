@@ -121,8 +121,8 @@ pub(crate) struct QkdTlsRequestExtension {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct QkdChallenge {
-    pub(crate) challenge: [u8; Self::CHALLENGE_SIZE],
     pub(crate) random_seed: [u8; Self::RANDOM_SEED_SIZE],
+    pub(crate) challenge: [u8; Self::CHALLENGE_SIZE],
 }
 
 impl QkdChallenge {
@@ -138,7 +138,53 @@ impl QkdChallenge {
         Self { challenge, random_seed }
     }
 
-    fn check_correspondence(&self, other: &Self) -> bool {
-        self.challenge == other.challenge
+    /// Check if the challenge is the same, and the random seed is different
+    /// It should avoid replay attack (but you should increase seed sequence number too when sending back the challenge)
+    /// # Arguments
+    /// * `other` - The other challenge to compare with
+    /// # Returns
+    /// True if the challenge is the same and the random seed is different, false otherwise
+    pub(crate) fn check_correspondence(&self, other: &Self) -> bool {
+        self.challenge == other.challenge && self.random_seed != other.random_seed
+    }
+
+    /// Keep challenge and change random seed
+    pub(crate) fn reseed(self) -> Self {
+        let mut random_seed = [0u8; Self::RANDOM_SEED_SIZE];
+        let system_random = ring::rand::SystemRandom::new();
+        loop {
+            system_random.fill(&mut random_seed).unwrap();
+            // Ensure random seed is different, in order to avoid replay attack
+            if random_seed != self.random_seed {
+                break;
+            }
+        }
+        Self {
+            challenge: self.challenge,
+            random_seed
+        }
+    }
+
+    /// Encrypt using QkdEncrypter TODO
+    pub(crate) fn encrypt_qkd_encrypter(&self, key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES], seq: u64) -> Vec<u8> {
+        QkdEncrypter::new(
+            key,
+            iv
+        ).encrypt(BorrowedPlainMessage {
+            typ: ContentType::QkdKeyChallenge,
+            version: ProtocolVersion::QKDv1_0,
+            payload: postcard::to_allocvec(self).unwrap().as_ref(),
+        }, seq).unwrap().payload().to_owned()
+    }
+
+    /// Decrypt using QkdDecrypter TODO
+    pub(crate) fn decrypt_qkd_decrypter(msg: Vec<u8>, key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES], seq: u64) -> Result<Self, Error> {
+        let mut decrypter = QkdDecrypter::new(
+            key,
+            iv
+        );
+        let opaque_msg = OpaqueMessage::new(ContentType::QkdKeyChallenge, ProtocolVersion::QKDv1_0, msg);
+        let plain_msg = decrypter.decrypt(opaque_msg, seq)?;
+        Ok(postcard::from_bytes(&plain_msg.payload.0).map_err(|_| Error::PeerMisbehaved(crate::PeerMisbehaved::InconsistentQkdChallenge))?)
     }
 }

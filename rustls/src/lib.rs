@@ -503,7 +503,7 @@ pub mod server {
     mod tls12;
     mod tls13;
 
-    mod qkd;
+    pub mod qkd;
 
     pub use crate::verify::NoClientAuth;
     pub use crate::webpki::{

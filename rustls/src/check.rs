@@ -3,6 +3,7 @@ use crate::error::Error;
 #[cfg(feature = "logging")]
 use crate::log::warn;
 use crate::msgs::message::MessagePayload;
+use crate::PeerMisbehaved;
 
 /// For a Message $m, and a HandshakePayload enum member $payload_type,
 /// return Ok(payload) if $m is both a handshake message and one that
@@ -73,4 +74,16 @@ pub(crate) fn inappropriate_handshake_message(
         }
         payload => inappropriate_message(payload, content_types),
     }
+}
+
+pub(crate) fn inappropriate_qkd_challenge_response_message(
+    payload: &MessagePayload,
+    content_types: &[ContentType],
+) -> Error {
+    warn!(
+        "Received a {:?} message while expecting QKD challenge response of type {:?}",
+        payload.content_type(),
+        content_types
+    );
+    Error::PeerMisbehaved(PeerMisbehaved::InconsistentQkdChallenge)
 }

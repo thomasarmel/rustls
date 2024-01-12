@@ -39,10 +39,8 @@ use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
 
 pub(super) use client_hello::CompleteClientHelloHandling;
-use crate::server::qkd::{ExpectQkdExchange, set_qkd_encrypter_and_decrypter};
 
 mod client_hello {
-    use crate::crypto::cipher::MessageEncrypter;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
     use crate::msgs::base::{Payload, PayloadU8};
@@ -63,8 +61,8 @@ mod client_hello {
     use crate::msgs::handshake::ServerExtension;
     use crate::msgs::handshake::ServerHelloPayload;
     use crate::msgs::handshake::SessionId;
-    use crate::qkd::QkdEncrypter;
     use crate::server::common::ActiveCertifiedKey;
+    use crate::server::qkd::ExpectQkdChallengeResponse;
     use crate::sign;
     use crate::tls13::key_schedule::{
         KeyScheduleEarly, KeyScheduleHandshake, KeySchedulePreHandshake,
@@ -444,11 +442,8 @@ mod client_hello {
             );
 
             if cx.common.is_qkd {
-                set_qkd_encrypter_and_decrypter(cx);
                 return Ok(
-                    Box::new(ExpectQkdExchange {
-                        config: self.config,
-                    })
+                    Box::new(ExpectQkdChallengeResponse {})
                 );
             }
 
@@ -516,16 +511,13 @@ mod client_hello {
 
         if cx.common.is_qkd {
             let server_qkd_challenge = crate::qkd::QkdChallenge::new();
-            let qkd_client_random_challenge = QkdEncrypter::new(
-                &cx.common.qkd_retrieved_key.as_ref().unwrap(),
-                &cx.common.qkd_negociated_iv.as_ref().unwrap(),
-            ).encrypt(crate::msgs::message::BorrowedPlainMessage {
-                typ: ContentType::QkdKeyChallenge,
-                version: ProtocolVersion::QKDv1_0,
-                payload: postcard::to_allocvec(&server_qkd_challenge).unwrap().as_ref(),
-            }, 0).unwrap();
 
-            extensions.push(ServerExtension::QkdAcknowledgment(qkd_client_random_challenge.payload().to_vec()));
+            let qkd_key = cx.common.qkd_retrieved_key.as_ref().unwrap();
+            let qkd_iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+            let encrypted_qkd_challenge = server_qkd_challenge.encrypt_qkd_encrypter(qkd_key, qkd_iv, 0);
+
+            extensions.push(ServerExtension::QkdAcknowledgment(encrypted_qkd_challenge));
+            cx.data.sent_qkd_challenge = Some(server_qkd_challenge);
         }
 
         if let Some(psk_idx) = chosen_psk_idx {
@@ -553,7 +545,8 @@ mod client_hello {
 
         trace!("sending server hello {:?}", sh);
         transcript.add_message(&sh);
-        cx.common.send_msg(sh, false);
+        cx.common.send_msg(sh, false, cx.common.is_qkd);
+
 
         // Start key schedule
         let key_schedule_pre_handshake = if let Some(psk) = resuming_psk {
@@ -592,7 +585,7 @@ mod client_hello {
             version: ProtocolVersion::TLSv1_2,
             payload: MessagePayload::ChangeCipherSpec(ChangeCipherSpecPayload {}),
         };
-        common.send_msg(m, false);
+        common.send_msg(m, false, false);
     }
 
     fn emit_hello_retry_request(
@@ -627,7 +620,7 @@ mod client_hello {
         trace!("Requesting retry {:?}", m);
         transcript.rollup_for_hrr();
         transcript.add_message(&m);
-        common.send_msg(m, false);
+        common.send_msg(m, false, false);
     }
 
     fn decide_if_early_data_allowed(
@@ -717,7 +710,7 @@ mod client_hello {
 
         trace!("sending encrypted extensions {:?}", ee);
         transcript.add_message(&ee);
-        cx.common.send_msg(ee, true);
+        cx.common.send_msg(ee, true, false);
         Ok(early_data)
     }
 
@@ -759,7 +752,7 @@ mod client_hello {
 
         trace!("Sending CertificateRequest {:?}", m);
         transcript.add_message(&m);
-        cx.common.send_msg(m, true);
+        cx.common.send_msg(m, true, false);
         Ok(true)
     }
 
@@ -801,7 +794,7 @@ mod client_hello {
 
         trace!("sending certificate {:?}", c);
         transcript.add_message(&c);
-        common.send_msg(c, true);
+        common.send_msg(c, true, false);
     }
 
     fn emit_certificate_verify_tls13(
@@ -836,7 +829,7 @@ mod client_hello {
 
         trace!("sending certificate-verify {:?}", m);
         transcript.add_message(&m);
-        common.send_msg(m, true);
+        common.send_msg(m, true, false);
         Ok(())
     }
 
@@ -862,7 +855,7 @@ mod client_hello {
         trace!("sending finished {:?}", m);
         transcript.add_message(&m);
         let hash_at_server_fin = transcript.get_current_hash();
-        cx.common.send_msg(m, true);
+        cx.common.send_msg(m, true, false);
 
         // Now move to application data keys.  Read key change is deferred until
         // the Finish message is received & validated.
@@ -1174,7 +1167,7 @@ impl ExpectFinished {
         };
 
         trace!("sending new ticket {:?} (stateless: {})", m, stateless);
-        cx.common.send_msg(m, true);
+        cx.common.send_msg(m, true, false);
         Ok(())
     }
 }

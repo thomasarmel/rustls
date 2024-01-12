@@ -110,7 +110,9 @@ impl MessageDeframer {
                         && m.payload().len() <= 2 =>
                 {
                     true
-                }
+                },
+                // Reponse to Qkd challenge is allowed to be plaintext, as it's supposed to be encrypted by its own.
+                ContentType::QkdKeyChallenge => true,
                 // In other circumstances, we expect all messages to be encrypted.
                 _ => false,
             };

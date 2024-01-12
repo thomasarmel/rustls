@@ -238,6 +238,7 @@ pub enum PeerMisbehaved {
     UnsolicitedSctList,
     UnsolicitedServerHelloExtension,
     WrongGroupForKeyShare,
+    InconsistentQkdChallenge,
 }
 
 impl From<PeerMisbehaved> for Error {

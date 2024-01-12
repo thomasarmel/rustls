@@ -345,7 +345,7 @@ fn emit_client_hello_for_retry(
     trace!("Sending ClientHello {:#?}", ch);
 
     transcript_buffer.add_message(&ch);
-    cx.common.send_msg(ch, false);
+    cx.common.send_msg(ch, false, false);
 
     // Calculate the hash of ClientHello and use it to derive EarlyTrafficSecret
     let early_key_schedule = early_key_schedule.map(|(resuming_suite, schedule)| {

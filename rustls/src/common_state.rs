@@ -46,6 +46,7 @@ pub struct CommonState {
     pub(crate) received_plaintext: ChunkVecBuffer,
     sendable_plaintext: ChunkVecBuffer,
     pub(crate) sendable_tls: ChunkVecBuffer,
+    pub(crate) pre_sendable_qkd_server_hello: ChunkVecBuffer,
     queued_key_update_message: Option<Vec<u8>>,
 
     /// Protocol whose key schedule should be used. Unused for TLS < 1.3.
@@ -83,6 +84,7 @@ impl CommonState {
             received_plaintext: ChunkVecBuffer::new(Some(DEFAULT_RECEIVED_PLAINTEXT_LIMIT)),
             sendable_plaintext: ChunkVecBuffer::new(Some(DEFAULT_BUFFER_LIMIT)),
             sendable_tls: ChunkVecBuffer::new(Some(DEFAULT_BUFFER_LIMIT)),
+            pre_sendable_qkd_server_hello: ChunkVecBuffer::new(Some(DEFAULT_BUFFER_LIMIT)),
             queued_key_update_message: None,
             protocol: Protocol::Tcp,
             quic: quic::Quic::default(),
@@ -393,8 +395,13 @@ impl CommonState {
         self.sendable_tls.append(m.encode());
     }
 
+    /// Queue QKD server hello, that will be sent alone at complete_qkd_ack() call
+    fn queue_qkd_server_hello_message(&mut self, m: OpaqueMessage) {
+        self.pre_sendable_qkd_server_hello.append(m.encode());
+    }
+
     /// Send a raw TLS message, fragmenting it if needed.
-    pub(crate) fn send_msg(&mut self, m: Message, must_encrypt: bool) {
+    pub(crate) fn send_msg(&mut self, m: Message, must_encrypt: bool, is_qkd_server_hello: bool) {
         {
             if let Protocol::Quic = self.protocol {
                 if let MessagePayload::Alert(alert) = m.payload {
@@ -419,7 +426,11 @@ impl CommonState {
                 .message_fragmenter
                 .fragment_message(msg);
             for m in iter {
-                self.queue_tls_message(m.to_unencrypted_opaque());
+                if is_qkd_server_hello {
+                    self.queue_qkd_server_hello_message(m.to_unencrypted_opaque());
+                } else {
+                    self.queue_tls_message(m.to_unencrypted_opaque());
+                }
             }
         } else {
             self.send_msg_encrypt(m.into());
@@ -497,7 +508,7 @@ impl CommonState {
     ) -> Error {
         debug_assert!(!self.sent_fatal_alert);
         let m = Message::build_alert(AlertLevel::Fatal, desc);
-        self.send_msg(m, self.record_layer.is_encrypting());
+        self.send_msg(m, self.record_layer.is_encrypting(), false);
         self.sent_fatal_alert = true;
         err.into()
     }
@@ -514,7 +525,7 @@ impl CommonState {
 
     fn send_warning_alert_no_log(&mut self, desc: AlertDescription) {
         let m = Message::build_alert(AlertLevel::Warning, desc);
-        self.send_msg(m, self.record_layer.is_encrypting());
+        self.send_msg(m, self.record_layer.is_encrypting(), false);
     }
 
     pub(crate) fn set_max_fragment_size(&mut self, new: Option<usize>) -> Result<(), Error> {

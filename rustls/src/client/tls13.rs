@@ -47,6 +47,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use std::prelude::rust_2021::ToOwned;
 use crate::client::qkd::start_qkd_handshake;
 
 // Extensions we expect in plaintext in the ServerHello.
@@ -178,13 +179,16 @@ pub(super) fn handle_server_hello(
     if config.accept_qkd {
         for ext in server_hello.extensions.iter() {
             if let ServerExtension::QkdAcknowledgment(qkd_server_ack_data) = ext {
+                let received_qkd_challenge = retrieve_server_qkd_challenge_from_server_hello_ext(cx, qkd_server_ack_data)?;
+                let qkd_challenge_response = received_qkd_challenge.reseed();
+                respond_qkd_challenge_ack(cx, qkd_challenge_response);
                 cx.common.is_qkd = true;
                 break;
             }
         }
     }
 
-    if !config.accept_qkd {
+    if !cx.common.is_qkd {
         emit_fake_ccs(&mut sent_tls13_fake_ccs, cx.common);
     }
 
@@ -214,6 +218,23 @@ fn validate_server_hello(
     }
 
     Ok(())
+}
+
+fn retrieve_server_qkd_challenge_from_server_hello_ext(cx: &mut ClientContext, qkd_server_ack_data: &[u8]) -> Result<crate::qkd::QkdChallenge, PeerMisbehaved> {
+    let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
+    let iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+    crate::qkd::QkdChallenge::decrypt_qkd_decrypter(qkd_server_ack_data.to_owned(), key, iv, 0)
+        .map_err(|_| PeerMisbehaved::InconsistentQkdChallenge)
+}
+
+fn respond_qkd_challenge_ack(cx: &mut ClientContext, qkd_challenge_response: crate::qkd::QkdChallenge) {
+    let qkd_key = cx.common.qkd_retrieved_key.as_ref().unwrap();
+    let qkd_iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+    let m = Message {
+        version: ProtocolVersion::QKDv1_0,
+        payload: MessagePayload::QkdKeyChallenge(Payload(qkd_challenge_response.encrypt_qkd_encrypter(qkd_key, qkd_iv, 1))),
+    };
+    cx.common.send_msg(m, false, false);
 }
 
 pub(super) fn initial_key_share(
@@ -346,7 +367,7 @@ pub(super) fn emit_fake_ccs(sent_tls13_fake_ccs: &mut bool, common: &mut CommonS
         version: ProtocolVersion::TLSv1_2,
         payload: MessagePayload::ChangeCipherSpec(ChangeCipherSpecPayload {}),
     };
-    common.send_msg(m, false);
+    common.send_msg(m, false, false);
 }
 
 fn validate_encrypted_extensions(
@@ -758,7 +779,7 @@ fn emit_certificate_tls13(
         }),
     };
     transcript.add_message(&m);
-    common.send_msg(m, true);
+    common.send_msg(m, true, false);
 }
 
 fn emit_certverify_tls13(
@@ -781,7 +802,7 @@ fn emit_certverify_tls13(
     };
 
     transcript.add_message(&m);
-    common.send_msg(m, true);
+    common.send_msg(m, true, false);
     Ok(())
 }
 
@@ -801,7 +822,7 @@ fn emit_finished_tls13(
     };
 
     transcript.add_message(&m);
-    common.send_msg(m, true);
+    common.send_msg(m, true, false);
 }
 
 fn emit_end_of_early_data_tls13(transcript: &mut HandshakeHash, common: &mut CommonState) {
@@ -818,7 +839,7 @@ fn emit_end_of_early_data_tls13(transcript: &mut HandshakeHash, common: &mut Com
     };
 
     transcript.add_message(&m);
-    common.send_msg(m, true);
+    common.send_msg(m, true, false);
 }
 
 struct ExpectFinished {

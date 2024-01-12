@@ -39,6 +39,7 @@ use base64::engine::general_purpose;
 #[cfg(doc)]
 use crate::crypto;
 use crate::qkd::{QKD_KEY_SIZE_BYTES, RequestQkdKey, RequestQkdKeysList, ResponseQkdKeysList};
+use crate::server::qkd::QkdServerConfig;
 
 /// A trait for the ability to store server session data.
 ///
@@ -450,6 +451,34 @@ impl<'a> std::io::Read for ReadEarlyData<'a> {
     }
 }
 
+/// Blablabla TODO
+pub struct QkdServerConnection {
+    wrapped_server_conn: ServerConnection,
+}
+
+impl QkdServerConnection {
+    pub(crate) fn new(wrapped_server_conn: ServerConnection) -> Self {
+        Self {
+            wrapped_server_conn,
+        }
+    }
+
+    /// blablabla TODO
+    /// TODO: use intermediate type, like QkdServerConnToBeAck
+    /// TODO: Result, in case ACK isn't correct :)
+    /// TODO: better use native encryption ?
+    pub fn complete_qkd_ack(self, rd: &mut dyn io::Read, wd: &mut dyn io::Write) -> ServerConnection {
+        let mut wrapped_server_conn = self.wrapped_server_conn;
+        if !wrapped_server_conn.is_qkd {
+            return wrapped_server_conn;
+        }
+        wrapped_server_conn.write_pre_sendable_qkd_server_hello(wd).unwrap();
+        wrapped_server_conn.read_tls(rd).unwrap();
+        wrapped_server_conn.process_new_packets().unwrap();
+        wrapped_server_conn
+    }
+}
+
 /// This represents a single TLS server connection.
 ///
 /// Send TLS-protected data to the peer using the `io::Write` trait implementation.
@@ -768,6 +797,15 @@ impl Accepted {
         })
     }
 
+    /// Blablabla TODO
+    pub fn into_qkd_connection(self, qkd_server_config: Arc<QkdServerConfig>) -> Result<QkdServerConnection, Error> {
+        Ok(
+            QkdServerConnection::new(
+            self.into_connection(qkd_server_config.get_server_config())?
+            )
+        )
+    }
+
     fn client_hello_payload(message: &Message) -> &ClientHelloPayload {
         match &message.payload {
             crate::msgs::message::MessagePayload::Handshake { parsed, .. } => match &parsed.payload
@@ -916,6 +954,7 @@ pub struct ServerConnectionData {
     pub(super) received_resumption_data: Option<Vec<u8>>,
     pub(super) resumption_data: Vec<u8>,
     pub(super) early_data: EarlyDataState,
+    pub(super) sent_qkd_challenge: Option<crate::qkd::QkdChallenge>,
 }
 
 impl ServerConnectionData {

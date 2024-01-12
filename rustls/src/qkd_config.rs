@@ -22,15 +22,15 @@ impl<'a> QkdClientConfig<'a> {
 }
 
 /// Initial configuration for a QKD server (KME address and SAE ID)
-pub struct QkdServerConfig<'a> {
+pub struct QkdInitialServerConfig<'a> {
     pub(crate) kme_addr: &'a str,
     pub(crate) client_auth_certificate_path: &'a str,
     pub(crate) client_auth_certificate_password: &'a str
 }
 
-impl<'a> QkdServerConfig<'a> {
+impl<'a> QkdInitialServerConfig<'a> {
     /// Create a new QKD configuration
-    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str) -> QkdServerConfig<'a> {
+    pub fn new(kme_addr: &'a str, client_auth_certificate_path: &'a str, client_auth_certificate_password: &'a str) -> QkdInitialServerConfig<'a> {
         Self {
             kme_addr,
             client_auth_certificate_path,
