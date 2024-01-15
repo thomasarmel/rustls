@@ -17,6 +17,7 @@ use std::fs::File;
 use std::io::Read;
 use std::prelude::rust_2021::ToString;
 use crate::qkd_config::QkdInitialServerConfig;
+use crate::server::server_conn::ServerConfigQkdFields;
 
 impl ConfigBuilder<ServerConfig, WantsVerifier> {
     /// Choose how to verify client certificates.
@@ -90,12 +91,14 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
     ) -> Result<crate::server::qkd::QkdServerConfig, Error> {
 
         let mut buf = Vec::new();
-        File::open(qkd_initial_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| Error::General("Cannot read client cert".to_string()))?; // TODO: Error handling
+        File::open(qkd_initial_config.client_auth_certificate_path)
+            .map_err(|_| Error::General("Cannot open client cert".to_string()))?
+            .read_to_end(&mut buf).map_err(|_| Error::General("Cannot read client cert".to_string()))?;
         let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_initial_config.client_auth_certificate_password).map_err(|_| Error::General("Cannot read client cert".to_string()))?;
-        let kme_client = Some(reqwest::blocking::Client::builder()
+        let kme_client = reqwest::blocking::Client::builder()
             .identity(client_cert_id)
             //.danger_accept_invalid_certs(true)
-            .build().map_err(|_| Error::General("Connot create KME client".to_string()))?);
+            .build().map_err(|_| Error::General("Cannot create KME client".to_string()))?;
 
         let private_key = self
             .state
@@ -103,6 +106,12 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             .key_provider
             .load_private_key(key_der)?;
         let resolver = handy::AlwaysResolvesChain::new(private_key, CertificateChain(cert_chain));
+
+        let server_config_qkd_fields = ServerConfigQkdFields {
+            kme_host: qkd_initial_config.kme_addr.to_string(),
+            kme_client
+        };
+
         let qkd_server_config = crate::server::qkd::QkdServerConfig::new(ServerConfig {
             provider: self.state.provider,
             verifier: self.state.verifier,
@@ -118,9 +127,10 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             max_early_data_size: 0,
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
-            accept_qkd: true,
+            /*accept_qkd: true,
             kme_host: Some(qkd_initial_config.kme_addr.to_string()),
-            kme_client,
+            kme_client,*/
+            optional_qkd_config_fields: Some(server_config_qkd_fields),
         });
         Ok(qkd_server_config)
     }
@@ -172,9 +182,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             max_early_data_size: 0,
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
-            accept_qkd: false,
-            kme_host: None,
-            kme_client: None,
+            optional_qkd_config_fields: None,
         }
     }
 }

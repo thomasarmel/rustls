@@ -165,7 +165,6 @@ impl QkdChallenge {
         }
     }
 
-    /// Encrypt using QkdEncrypter TODO
     pub(crate) fn encrypt_qkd_encrypter(&self, key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES], seq: u64) -> Vec<u8> {
         QkdEncrypter::new(
             key,
@@ -177,7 +176,6 @@ impl QkdChallenge {
         }, seq).unwrap().payload().to_owned()
     }
 
-    /// Decrypt using QkdDecrypter TODO
     pub(crate) fn decrypt_qkd_decrypter(msg: Vec<u8>, key: &[u8; QKD_KEY_SIZE_BYTES], iv: &[u8; QKD_IV_SIZE_BYTES], seq: u64) -> Result<Self, Error> {
         let mut decrypter = QkdDecrypter::new(
             key,

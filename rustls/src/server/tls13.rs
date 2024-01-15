@@ -61,6 +61,7 @@ mod client_hello {
     use crate::msgs::handshake::ServerExtension;
     use crate::msgs::handshake::ServerHelloPayload;
     use crate::msgs::handshake::SessionId;
+    use crate::qkd_common_state::CurrentQkdState;
     use crate::server::common::ActiveCertifiedKey;
     use crate::server::qkd::ExpectQkdChallengeResponse;
     use crate::sign;
@@ -243,7 +244,7 @@ mod client_hello {
                             cx.common,
                             group.name(),
                         );
-                        if !cx.common.is_qkd {
+                        if !matches!(cx.common.current_qkd_common_state, CurrentQkdState::Used(_)) {
                             emit_fake_ccs(cx.common);
                         }
                         let skip_early_data = max_early_data_size(self.config.max_early_data_size);
@@ -374,7 +375,7 @@ mod client_hello {
                 &self.config,
             )?;
 
-            if !self.done_retry && !cx.common.is_qkd {
+            if !self.done_retry && !matches!(cx.common.current_qkd_common_state, CurrentQkdState::Used(_)) {
                 emit_fake_ccs(cx.common);
             }
 
@@ -441,9 +442,9 @@ mod client_hello {
                 &self.config,
             );
 
-            if cx.common.is_qkd {
+            if let CurrentQkdState::Used(common_qkd_state) = cx.common.current_qkd_common_state.clone() {
                 return Ok(
-                    Box::new(ExpectQkdChallengeResponse {})
+                    Box::new(ExpectQkdChallengeResponse::new(common_qkd_state))
                 );
             }
 
@@ -509,11 +510,11 @@ mod client_hello {
         extensions.push(ServerExtension::KeyShare(kse));
         extensions.push(ServerExtension::SupportedVersions(ProtocolVersion::TLSv1_3));
 
-        if cx.common.is_qkd {
+        if let CurrentQkdState::Used(qkd_common_state) = &cx.common.current_qkd_common_state {
             let server_qkd_challenge = crate::qkd::QkdChallenge::new();
 
-            let qkd_key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-            let qkd_iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+            let qkd_key = &qkd_common_state.shared_encryption_key;
+            let qkd_iv = &qkd_common_state.negotiated_iv;
             let encrypted_qkd_challenge = server_qkd_challenge.encrypt_qkd_encrypter(qkd_key, qkd_iv, 0);
 
             extensions.push(ServerExtension::QkdAcknowledgment(encrypted_qkd_challenge));
@@ -545,7 +546,8 @@ mod client_hello {
 
         trace!("sending server hello {:?}", sh);
         transcript.add_message(&sh);
-        cx.common.send_msg(sh, false, cx.common.is_qkd);
+        let is_qkd_server_hello = matches!(cx.common.current_qkd_common_state, CurrentQkdState::Used(_));
+        cx.common.send_msg(sh, false, is_qkd_server_hello);
 
 
         // Start key schedule

@@ -48,7 +48,8 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use std::prelude::rust_2021::ToOwned;
-use crate::client::qkd::start_qkd_handshake;
+use crate::client::qkd::set_qkd_encryption_parameters_and_start_traffic;
+use crate::qkd_common_state::{CurrentQkdState, QkdCommonState};
 
 // Extensions we expect in plaintext in the ServerHello.
 static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[
@@ -175,20 +176,20 @@ pub(super) fn handle_server_hello(
         cx.common,
     );
 
-    cx.common.is_qkd = false;
-    if config.accept_qkd {
+    let current_qkd_common_state = cx.common.current_qkd_common_state.clone();
+    if let CurrentQkdState::ClientInitiatedWaitServerConfirmation(qkd_common_state) = current_qkd_common_state {
         for ext in server_hello.extensions.iter() {
             if let ServerExtension::QkdAcknowledgment(qkd_server_ack_data) = ext {
-                let received_qkd_challenge = retrieve_server_qkd_challenge_from_server_hello_ext(cx, qkd_server_ack_data)?;
+                let received_qkd_challenge = retrieve_server_qkd_challenge_from_server_hello_ext(&qkd_common_state, qkd_server_ack_data)?;
                 let qkd_challenge_response = received_qkd_challenge.reseed();
-                respond_qkd_challenge_ack(cx, qkd_challenge_response);
-                cx.common.is_qkd = true;
+                respond_qkd_challenge_ack(cx, &qkd_common_state, qkd_challenge_response);
+                cx.common.current_qkd_common_state = CurrentQkdState::Used(qkd_common_state.clone());
                 break;
             }
         }
     }
 
-    if !cx.common.is_qkd {
+    if !matches!(cx.common.current_qkd_common_state, CurrentQkdState::Used(_)) {
         emit_fake_ccs(&mut sent_tls13_fake_ccs, cx.common);
     }
 
@@ -220,16 +221,16 @@ fn validate_server_hello(
     Ok(())
 }
 
-fn retrieve_server_qkd_challenge_from_server_hello_ext(cx: &mut ClientContext, qkd_server_ack_data: &[u8]) -> Result<crate::qkd::QkdChallenge, PeerMisbehaved> {
-    let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-    let iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+fn retrieve_server_qkd_challenge_from_server_hello_ext(qkd_common_state: &QkdCommonState, qkd_server_ack_data: &[u8]) -> Result<crate::qkd::QkdChallenge, PeerMisbehaved> {
+    let key = &qkd_common_state.shared_encryption_key;
+    let iv = &qkd_common_state.negotiated_iv;
     crate::qkd::QkdChallenge::decrypt_qkd_decrypter(qkd_server_ack_data.to_owned(), key, iv, 0)
         .map_err(|_| PeerMisbehaved::InconsistentQkdChallenge)
 }
 
-fn respond_qkd_challenge_ack(cx: &mut ClientContext, qkd_challenge_response: crate::qkd::QkdChallenge) {
-    let qkd_key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-    let qkd_iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+fn respond_qkd_challenge_ack(cx: &mut ClientContext, qkd_common_state: &QkdCommonState, qkd_challenge_response: crate::qkd::QkdChallenge) {
+    let qkd_key = &qkd_common_state.shared_encryption_key;
+    let qkd_iv = &qkd_common_state.negotiated_iv;
     let m = Message {
         version: ProtocolVersion::QKDv1_0,
         payload: MessagePayload::QkdKeyChallenge(Payload(qkd_challenge_response.encrypt_qkd_encrypter(qkd_key, qkd_iv, 1))),
@@ -701,9 +702,9 @@ impl State<ClientConnectionData> for ExpectCertificateVerify {
             .split_first()
             .ok_or(Error::NoCertificatesPresented)?;
         // Don't check certificate in case of QKD (remove this condition in the future)
-        let cert_verified = match cx.common.is_qkd {
-            true => verify::ServerCertVerified::assertion(),
-            false => self
+        let cert_verified = match cx.common.current_qkd_common_state {
+            CurrentQkdState::Used(_) => verify::ServerCertVerified::assertion(),
+            _ => self
                 .config
                 .verifier
                 .verify_server_cert(
@@ -912,10 +913,9 @@ impl State<ClientConnectionData> for ExpectFinished {
             }
         }
 
-        if cx.common.is_qkd {
-            let server_name = cx.common.server_name.clone().unwrap();
-            let client_config = cx.common.client_config.clone().unwrap();
-            return start_qkd_handshake(server_name, client_config, cx);
+        let current_qkd_common_state = cx.common.current_qkd_common_state.clone();
+        if let CurrentQkdState::Used(qkd_common_state) = current_qkd_common_state {
+            return set_qkd_encryption_parameters_and_start_traffic(cx, &qkd_common_state);
         }
 
         let (key_schedule_pre_finished, verify_data) = st

@@ -1,19 +1,15 @@
 use std::prelude::rust_2015::Box;
-use std::sync::Arc;
-use pki_types::ServerName;
-use crate::{ClientConfig, ContentType, Error};
+use crate::{ContentType, Error};
 use crate::check::inappropriate_message;
-use crate::client::{ClientConnectionData, ClientSessionStore};
-use crate::client::hs::{ClientContext, NextStateOrError};
+use crate::client::ClientConnectionData;
+use crate::client::hs::NextStateOrError;
 use crate::common_state::{Context, State};
 use crate::msgs::message::{Message, MessagePayload};
+use crate::qkd_common_state::QkdCommonState;
 
-pub(super) fn start_qkd_handshake(server_name: ServerName<'static>,
-                                  config: Arc<ClientConfig>,
-                                  cx: &mut ClientContext<'_>,
-) -> NextStateOrError {
-    let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-    let iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+pub(super) fn set_qkd_encryption_parameters_and_start_traffic(cx: &mut Context<'_, ClientConnectionData>, qkd_common_state: &QkdCommonState) -> NextStateOrError {
+    let key = &qkd_common_state.shared_encryption_key;
+    let iv = &qkd_common_state.negotiated_iv;
     cx.common.record_layer.set_message_encrypter(Box::new(crate::qkd::QkdEncrypter::new(
         key,
         iv,
@@ -24,13 +20,10 @@ pub(super) fn start_qkd_handshake(server_name: ServerName<'static>,
             iv))
     );
     cx.common.start_traffic();
-    Ok(Box::new(ExpectTrafficQkd { session_storage: Arc::clone(&config.resumption.store), server_name }))
+    Ok(Box::new(ExpectTrafficQkd {}))
 }
 
-#[allow(dead_code)]
 pub(crate) struct ExpectTrafficQkd {
-    pub(crate) session_storage: Arc<dyn ClientSessionStore>,
-    pub(crate) server_name: ServerName<'static>,
 }
 
 impl State<ClientConnectionData> for ExpectTrafficQkd {

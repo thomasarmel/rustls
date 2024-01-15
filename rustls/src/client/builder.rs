@@ -8,7 +8,7 @@ use crate::msgs::handshake::CertificateChain;
 use crate::webpki::{self, WebPkiServerVerifier};
 use crate::{verify, versions};
 
-use super::client_conn::Resumption;
+use super::client_conn::{ClientConfigQkdFields, Resumption};
 
 use pki_types::{CertificateDer, PrivateKeyDer};
 
@@ -165,11 +165,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             key_log: Arc::new(NoKeyLog {}),
             enable_secret_extraction: false,
             enable_early_data: false,
-            accept_qkd: false,
-            origin_sae_id: None,
-            target_sae_id: None,
-            kme_client: None,
-            kme_host: None,
+            optional_qkd_config_fields: None,
         }
     }
 
@@ -179,18 +175,25 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         let mut buf = Vec::new();
         File::open(qkd_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| ())?; // TODO: Error handling
         let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_config.client_auth_certificate_password).map_err(|_| ())?;
-        let kme_client = Some(reqwest::blocking::Client::builder()
+        let kme_client = reqwest::blocking::Client::builder()
             .identity(client_cert_id)
             //.danger_accept_invalid_certs(true)
-            .build().map_err(|_| ())?);
+            .build().map_err(|_| ())?;
 
         // Retrieve current SAE ID
-        let this_sae_info_response = kme_client.as_ref().unwrap()
+        let this_sae_info_response = kme_client
             .get(&format!("https://{}/api/v1/sae/info/me", qkd_config.kme_addr))
             .send()
             .map_err(|_| ())?
             .text().map_err(|_| ())?;
         let this_sae_info_obj: ResponseQkdSAEInfo = serde_json::from_str(&this_sae_info_response).map_err(|_| ())?;
+
+        let client_config_qkd_fields = ClientConfigQkdFields {
+            origin_sae_id: this_sae_info_obj.SAE_ID,
+            target_sae_id: qkd_config.target_sae_id,
+            kme_client,
+            kme_host: qkd_config.kme_addr.to_string(),
+        };
 
         Ok(ClientConfig {
             provider: self.state.provider,
@@ -204,11 +207,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             key_log: Arc::new(NoKeyLog {}),
             enable_secret_extraction: false,
             enable_early_data: false,
-            accept_qkd: true,
-            origin_sae_id: Some(this_sae_info_obj.SAE_ID),
-            target_sae_id: Some(qkd_config.target_sae_id),
-            kme_host: Some(qkd_config.kme_addr.to_string()),
-            kme_client,
+            optional_qkd_config_fields: Some(client_config_qkd_fields),
         })
     }
 }

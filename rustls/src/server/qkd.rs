@@ -1,4 +1,4 @@
-//! Blablabla TODO
+//! QKD specific config and states for server side
 
 use std::prelude::rust_2015::Box;
 use std::prelude::rust_2021::ToOwned;
@@ -25,7 +25,8 @@ impl QkdServerConfig {
         }
     }
 
-    /// Blablabla TODO
+    /// How to output key material for debugging. The default does nothing
+    /// Implements SSLKEYLOGFILE standard
     pub fn set_key_log(&mut self, key_log_file: Arc<crate::KeyLogFile>) {
         self.wrapped_server_config.key_log = key_log_file;
     }
@@ -37,6 +38,8 @@ impl QkdServerConfig {
 
 
 pub(crate) struct ExpectQkdChallengeResponse {
+    /// Common state for QKD exchange, shared by client and server
+    qkd_common_state: crate::qkd_common_state::QkdCommonState,
 }
 
 impl State<ServerConnectionData> for ExpectQkdChallengeResponse {
@@ -53,8 +56,8 @@ impl State<ServerConnectionData> for ExpectQkdChallengeResponse {
             }
         };
 
-        let qkd_key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-        let qkd_iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
+        let qkd_key = &self.qkd_common_state.shared_encryption_key;
+        let qkd_iv = &self.qkd_common_state.negotiated_iv;
         let challenge_response_obj = crate::qkd::QkdChallenge::decrypt_qkd_decrypter(challenge_reponse_payload.0.to_owned(), qkd_key, qkd_iv, 1)?;
 
         if cx.data.sent_qkd_challenge.as_ref().unwrap().check_correspondence(&challenge_response_obj) {
@@ -62,8 +65,32 @@ impl State<ServerConnectionData> for ExpectQkdChallengeResponse {
             trace!("QKD challenge response does not correspond to challenge");
             return Err(Error::PeerMisbehaved(PeerMisbehaved::InconsistentQkdChallenge));
         }
-        set_qkd_encrypter_and_decrypter(cx);
+        self.set_qkd_encrypter_decrypter_and_start_traffic(cx);
         Ok(Box::new(ExpectQkdExchange {}))
+    }
+}
+
+impl ExpectQkdChallengeResponse {
+    pub(crate) fn new(qkd_common_state: crate::qkd_common_state::QkdCommonState) -> Self {
+        Self {
+            qkd_common_state,
+        }
+    }
+
+    fn set_qkd_encrypter_decrypter_and_start_traffic(&self, cx: &mut crate::server::hs::ServerContext) {
+        let key = &self.qkd_common_state.shared_encryption_key;
+        let iv = &self.qkd_common_state.negotiated_iv;
+        cx.common.record_layer.set_message_decrypter(Box::new(
+            crate::qkd::QkdDecrypter::new(
+                key,
+                iv))
+        );
+        cx.common.record_layer.set_message_encrypter(Box::new(
+            crate::qkd::QkdEncrypter::new(
+                key,
+                iv))
+        );
+        cx.common.start_traffic();
     }
 }
 
@@ -85,20 +112,4 @@ impl State<ServerConnectionData> for ExpectQkdExchange {
         }
         Ok(self)
     }
-}
-
-pub(crate) fn set_qkd_encrypter_and_decrypter(cx: &mut crate::server::hs::ServerContext) {
-    let key = cx.common.qkd_retrieved_key.as_ref().unwrap();
-    let iv = cx.common.qkd_negociated_iv.as_ref().unwrap();
-    cx.common.record_layer.set_message_decrypter(Box::new(
-        crate::qkd::QkdDecrypter::new(
-            key,
-            iv))
-    );
-    cx.common.record_layer.set_message_encrypter(Box::new(
-        crate::qkd::QkdEncrypter::new(
-            key,
-            iv))
-    );
-    cx.common.start_traffic();
 }

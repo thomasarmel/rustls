@@ -39,6 +39,7 @@ use base64::engine::general_purpose;
 #[cfg(doc)]
 use crate::crypto;
 use crate::qkd::{QKD_KEY_SIZE_BYTES, RequestQkdKey, RequestQkdKeysList, ResponseQkdKeysList};
+use crate::qkd_common_state::{CurrentQkdState, QkdCommonState};
 use crate::server::qkd::QkdServerConfig;
 
 /// A trait for the ability to store server session data.
@@ -322,14 +323,19 @@ pub struct ServerConfig {
     /// do any resumption.
     pub send_tls13_tickets: usize,
 
-    /// Whether to accept QKD ciphersuites.
-    pub accept_qkd: bool,
+    /// If we want server to accept QKD clients, set it to Some and fill in the fields
+    /// # Note:
+    /// Otherwise it will accept QKD and classic clients, and will act as a classic server
+    pub(crate) optional_qkd_config_fields: Option<ServerConfigQkdFields>,
+}
 
-    /// Host/port of the KME
-    pub kme_host: Option<String>,
-
+/// If server accepts QKD, this Option must be Some, and contains information to set up QKD connection
+#[derive(Debug, Clone)]
+pub(crate) struct ServerConfigQkdFields {
+    /// Host/port of the KME (ie: "domain-or-ip:port")
+    pub(crate) kme_host: String,
     /// Client that will retrieve keys from KME
-    pub kme_client: Option<reqwest::blocking::Client>,
+    pub(crate) kme_client: reqwest::blocking::Client,
 }
 
 // Avoid a `Clone` bound on `C`.
@@ -350,9 +356,7 @@ impl Clone for ServerConfig {
             max_early_data_size: self.max_early_data_size,
             send_half_rtt_data: self.send_half_rtt_data,
             send_tls13_tickets: self.send_tls13_tickets,
-            accept_qkd: self.accept_qkd,
-            kme_host: self.kme_host.clone(),
-            kme_client: self.kme_client.clone(),
+            optional_qkd_config_fields: self.optional_qkd_config_fields.clone(),
         }
     }
 }
@@ -451,7 +455,11 @@ impl<'a> std::io::Read for ReadEarlyData<'a> {
     }
 }
 
-/// Blablabla TODO
+/// This structs holds the state of early data in a QKD connection.
+/// It has to be then converted to a ServerConnection in order to be used
+/// self.complete_qkd_ack() should be called in order to complete the QKD handshake.
+/// It will send prematurely the ServerHello to the client, containing a challenge
+/// The client will then send back the challenge, and the server will check it in the next round.
 pub struct QkdServerConnection {
     wrapped_server_conn: ServerConnection,
 }
@@ -463,13 +471,11 @@ impl QkdServerConnection {
         }
     }
 
-    /// blablabla TODO
-    /// TODO: use intermediate type, like QkdServerConnToBeAck
-    /// TODO: Result, in case ACK isn't correct :)
-    /// TODO: better use native encryption ?
+    /// Converts a QkdServerConnection to a ServerConnection
+    /// For that it will check send prematurely the ServerHello to the client, containing a challenge for the client
     pub fn complete_qkd_ack(self, rd: &mut dyn io::Read, wd: &mut dyn io::Write) -> ServerConnection {
         let mut wrapped_server_conn = self.wrapped_server_conn;
-        if !wrapped_server_conn.is_qkd {
+        if !matches!(wrapped_server_conn.current_qkd_common_state, CurrentQkdState::Used(_)) {
             return wrapped_server_conn;
         }
         wrapped_server_conn.write_pre_sendable_qkd_server_hello(wd).unwrap();
@@ -763,25 +769,20 @@ impl Accepted {
 
         let client_hello = Self::client_hello_payload(&self.message);
 
-        cx.common.server_config = Some(config.clone());
-
-
-        cx.common.is_qkd = false;
-        if config.as_ref().accept_qkd {
+        if let Some(qkd_config_fields) = &config.optional_qkd_config_fields {
             for client_extension in client_hello.extensions.iter() {
                 if let ClientExtension::QkdKeyUUIDAndClientId(key_uuid_client_sae_id) = client_extension {
                     let qkd_tls_request_ext: crate::qkd::QkdTlsRequestExtension = postcard::from_bytes(&key_uuid_client_sae_id).unwrap();
-                    cx.common.qkd_retrieved_key_uuid = Some(qkd_tls_request_ext.key_uuid);
-                    cx.common.qkd_origin_sae_id = Some(qkd_tls_request_ext.origin_sae_id);
-                    cx.common.qkd_negociated_iv = Some(qkd_tls_request_ext.iv);
-                    cx.common.is_qkd = true;
+                    let qkd_retrieved_key = Self::retrieve_qkd_key_from_uuid(&qkd_config_fields.kme_client, &qkd_config_fields.kme_host, &qkd_tls_request_ext.key_uuid, qkd_tls_request_ext.origin_sae_id)?;
+                    cx.common.current_qkd_common_state = CurrentQkdState::Used(QkdCommonState {
+                        encryption_key_uuid: qkd_tls_request_ext.key_uuid,
+                        shared_encryption_key: qkd_retrieved_key,
+                        negotiated_iv: qkd_tls_request_ext.iv,
+                        origin_sae_id: qkd_tls_request_ext.origin_sae_id,
+                    });
                     break;
                 }
             }
-        }
-
-        if cx.common.is_qkd {
-            cx.common.qkd_retrieved_key = Some(Self::retrieve_qkd_key_from_uuid(&mut cx, &config)?);
         }
 
         let new = state.with_certified_key(
@@ -797,7 +798,8 @@ impl Accepted {
         })
     }
 
-    /// Blablabla TODO
+    /// Converts an accepted client hello into a [`QkdServerConnection`].
+    /// Once done, complete_qkd_ack() should be called in order to complete the QKD handshake.
     pub fn into_qkd_connection(self, qkd_server_config: Arc<QkdServerConfig>) -> Result<QkdServerConnection, Error> {
         Ok(
             QkdServerConnection::new(
@@ -817,20 +819,20 @@ impl Accepted {
         }
     }
 
-    fn retrieve_qkd_key_from_uuid(cx: &mut Context<ServerConnectionData>, config: &Arc<ServerConfig>) -> Result<[u8; QKD_KEY_SIZE_BYTES], Error> {
+    fn retrieve_qkd_key_from_uuid(kme_client: &reqwest::blocking::Client, kme_host: &str, qkd_key_uuid: &str, origin_sae_id: i64) -> Result<[u8; QKD_KEY_SIZE_BYTES], Error> {
         let kme_key_retrieve_url = format!(
             "https://{}/api/v1/keys/{}/dec_keys",
-            config.kme_host.as_ref().ok_or(Error::General("Invalid config".to_string()))?,
-            cx.common.qkd_origin_sae_id.ok_or(Error::General("Invalid config".to_string()))?
+            kme_host,
+            origin_sae_id
         );
         let request_body_qkd_uuids: RequestQkdKeysList = RequestQkdKeysList {
             key_IDs: vec![
                 RequestQkdKey {
-                    key_ID: cx.common.qkd_retrieved_key_uuid.clone().unwrap()
+                    key_ID: qkd_key_uuid.to_string()
                 }
             ],
         };
-        let response = cx.common.server_config.as_ref().unwrap().kme_client.as_ref().unwrap().post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
+        let response = kme_client.post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
         let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
         if response_keys.keys.len() < 1 {
             return Err(Error::General("No key retrieved from KME server".to_string()));

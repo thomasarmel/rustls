@@ -32,11 +32,14 @@ use std::{format, io};
 use std::prelude::rust_2021::{String, ToString};
 use base64::Engine;
 use base64::engine::general_purpose;
+use ring::rand::SecureRandom;
 
 #[cfg(doc)]
 use crate::{crypto, DistinguishedName};
+use crate::crypto::ring::ring_like;
 use crate::Error::General;
 use crate::qkd::{QKD_KEY_SIZE_BYTES, ResponseQkdKeysList};
+use crate::qkd_common_state::{CurrentQkdState, QkdCommonState};
 
 /// A trait for the ability to store client session data, so that sessions
 /// can be resumed in future connections.
@@ -206,20 +209,23 @@ pub struct ClientConfig {
     /// The default is false.
     pub enable_early_data: bool,
 
-    /// Whether to accept QKD ciphersuites.
-    pub accept_qkd: bool,
+    /// If we want client to accept QKD server, set it to Some and fill in the fields
+    /// # Note:
+    /// Otherwise it will connect to classic or QKD server using classic handhake
+    pub(crate) optional_qkd_config_fields: Option<ClientConfigQkdFields>,
+}
 
-    /// If qkd, this SAE id (TODO: reformat)
-    pub origin_sae_id: Option<i64>,
-
-    /// If qkd, server SAE id (TODO: reformat)
-    pub target_sae_id: Option<i64>,
-
-    /// If qkd, client to connect to KME (TODO: reformat)
-    pub kme_client: Option<reqwest::blocking::Client>,
-
-    /// If qkd, host of KME (TODO: reformat)
-    pub kme_host: Option<String>,
+/// If client accepts QKD, this Option must be Some, and contains information to set up QKD connection
+#[derive(Debug, Clone)]
+pub(crate) struct ClientConfigQkdFields {
+    /// Client SAE id (this machine)
+    pub(crate) origin_sae_id: i64,
+    /// Server SAE id
+    pub(crate) target_sae_id: i64,
+    /// HTTP client to connect to KME
+    pub(crate) kme_client: reqwest::blocking::Client,
+    /// KME hostname
+    pub(crate) kme_host: String,
 }
 
 /// What mechanisms to support for resuming a TLS 1.2 session.
@@ -252,11 +258,7 @@ impl Clone for ClientConfig {
             key_log: Arc::clone(&self.key_log),
             enable_secret_extraction: self.enable_secret_extraction,
             enable_early_data: self.enable_early_data,
-            accept_qkd: self.accept_qkd,
-            origin_sae_id: self.origin_sae_id,
-            target_sae_id: self.target_sae_id,
-            kme_client: self.kme_client.clone(),
-            kme_host: self.kme_host.clone(),
+            optional_qkd_config_fields: self.optional_qkd_config_fields.clone(),
         }
     }
 }
@@ -679,37 +681,46 @@ impl ConnectionCore<ClientConnectionData> {
             data: &mut data,
         };
 
-        cx.common.server_name = Some(name.clone());
-        cx.common.client_config = Some(Arc::clone(&config));
-
-        if config.accept_qkd {
-            let kme_key_retrieve_url = format!(
-                "https://{}/api/v1/keys/{}/enc_keys",
-                config.kme_host.as_ref().ok_or(General("Invalid config".to_string()))?,
-                config.target_sae_id.ok_or(General("Invalid config".to_string()))?
+        if let Some(qkd_config_fields) = &config.optional_qkd_config_fields {
+            cx.common.current_qkd_common_state = CurrentQkdState::ClientInitiatedWaitServerConfirmation(
+                Self::retrieve_qkd_key_from_kme_and_common_state(qkd_config_fields)?
             );
-            // TODO: can fetch target SAE ID from server name
-            let response = config
-                .kme_client
-                .as_ref()
-                .ok_or(General("Invalid config".to_string()))?
-                .post(kme_key_retrieve_url)
-                .send().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?; // TODO: better error enum :)
-            let text_response = response.text().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
-            let retrieved_keys: ResponseQkdKeysList = serde_json::from_str(&text_response).map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
-            if retrieved_keys.keys.len() < 1 {
-                return Err(General("No key retrieved from KME server".to_string()));
-            }
-            let key_base64 = retrieved_keys.keys[0].key.clone();
-            let key_uuid = retrieved_keys.keys[0].key_ID.clone();
-            let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| General("Cannot decode retrieved key from KME server".to_string()))?[..];
-            cx.common.qkd_retrieved_key_uuid = Some(key_uuid);
-            cx.common.qkd_origin_sae_id = config.origin_sae_id;
-            cx.common.qkd_retrieved_key = Some(<[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| General("Cannot convert retrieved key from KME server".to_string()))?);
         }
 
         let state = hs::start_handshake(name, extra_exts, config, &mut cx)?;
         Ok(Self::new(state, data, common_state))
+    }
+
+    fn retrieve_qkd_key_from_kme_and_common_state(qkd_config_fields: &ClientConfigQkdFields) -> Result<QkdCommonState, Error> {
+        let kme_key_retrieve_url = format!(
+            "https://{}/api/v1/keys/{}/enc_keys",
+            qkd_config_fields.kme_host,
+            qkd_config_fields.target_sae_id
+        );
+        // TODO: can fetch target SAE ID from server name
+        let response = qkd_config_fields
+            .kme_client
+            .post(kme_key_retrieve_url)
+            .send().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?; // TODO: better error enum :)
+        let text_response = response.text().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
+        let retrieved_keys: ResponseQkdKeysList = serde_json::from_str(&text_response).map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
+        if retrieved_keys.keys.len() < 1 {
+            return Err(General("No key retrieved from KME server".to_string()));
+        }
+        let key_base64 = retrieved_keys.keys[0].key.clone();
+        let key_uuid = retrieved_keys.keys[0].key_ID.clone();
+        let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| General("Cannot decode retrieved key from KME server".to_string()))?[..];
+        let decoded_key = <[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| General("Cannot convert retrieved key from KME server".to_string()))?;
+
+        let mut random_iv = [0u8; crate::qkd::QKD_IV_SIZE_BYTES];
+        let _ = ring_like::rand::SystemRandom::new().fill(&mut random_iv).unwrap();
+
+        Ok(QkdCommonState {
+            encryption_key_uuid: key_uuid,
+            shared_encryption_key: decoded_key,
+            negotiated_iv: random_iv,
+            origin_sae_id: qkd_config_fields.origin_sae_id,
+        })
     }
 
     pub(crate) fn is_early_data_accepted(&self) -> bool {

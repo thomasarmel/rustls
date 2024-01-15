@@ -550,3 +550,4 @@ pub mod ticketer;
 pub mod manual;
 mod qkd;
 pub mod qkd_config;
+mod qkd_common_state;

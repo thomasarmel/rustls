@@ -38,8 +38,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
-use ring::rand::SecureRandom;
-use crate::crypto::ring::ring_like;
+use crate::qkd_common_state::CurrentQkdState;
 
 pub(super) type NextState = Box<dyn State<ClientConnectionData>>;
 pub(super) type NextStateOrError = Result<NextState, Error>;
@@ -235,15 +234,12 @@ fn emit_client_hello_for_retry(
         ClientExtension::CertificateStatusRequest(CertificateStatusRequest::build_ocsp()),
     ];
 
-    if config.accept_qkd {
-        let mut random_iv = [0u8; crate::qkd::QKD_IV_SIZE_BYTES];
-        let _ = ring_like::rand::SystemRandom::new().fill(&mut random_iv).unwrap();
-        cx.common.qkd_negociated_iv = Some(random_iv.to_owned());
+    if let CurrentQkdState::ClientInitiatedWaitServerConfirmation(current_common_qkd_state) = &cx.common.current_qkd_common_state {
 
         let ext = crate::qkd::QkdTlsRequestExtension {
-            key_uuid: cx.common.qkd_retrieved_key_uuid.to_owned().unwrap(),
-            origin_sae_id: cx.common.qkd_origin_sae_id.unwrap(),
-            iv: random_iv,
+            key_uuid: current_common_qkd_state.encryption_key_uuid.to_owned(),
+            origin_sae_id: current_common_qkd_state.origin_sae_id,
+            iv: current_common_qkd_state.negotiated_iv,
         };
         let qkd_tls_extension_data = postcard::to_allocvec(&ext).unwrap();
         exts.push(ClientExtension::QkdKeyUUIDAndClientId(qkd_tls_extension_data));
