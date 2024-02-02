@@ -95,6 +95,9 @@ pub enum Error {
     /// or too large.
     BadMaxFragmentSize,
 
+    /// In QKD mode, failed to retrieve the key from the KME
+    QkdKmeKeyRetrievalError,
+
     /// Any other error.
     ///
     /// This variant should only be used when the error is not better described by a more
@@ -524,6 +527,7 @@ impl fmt::Display for Error {
                 write!(f, "the supplied max_fragment_size was too small or large")
             }
             Self::General(ref err) => write!(f, "unexpected error: {}", err),
+            Self::QkdKmeKeyRetrievalError => write!(f, "failed to retrieve QKD key from KME"),
             Self::Other(ref err) => write!(f, "other error: {}", err),
         }
     }

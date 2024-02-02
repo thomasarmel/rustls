@@ -29,7 +29,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::ops::{Deref, DerefMut};
 use std::{format, io};
-use std::prelude::rust_2021::{String, ToString};
+use std::prelude::rust_2021::String;
 use base64::Engine;
 use base64::engine::general_purpose;
 use ring::rand::SecureRandom;
@@ -37,7 +37,7 @@ use ring::rand::SecureRandom;
 #[cfg(doc)]
 use crate::{crypto, DistinguishedName};
 use crate::crypto::ring::ring_like;
-use crate::Error::General;
+use crate::Error::QkdKmeKeyRetrievalError;
 use crate::qkd::{QKD_KEY_SIZE_BYTES, ResponseQkdKeysList};
 use crate::qkd_common_state::{CurrentQkdState, QkdCommonState};
 
@@ -701,16 +701,16 @@ impl ConnectionCore<ClientConnectionData> {
         let response = qkd_config_fields
             .kme_client
             .post(kme_key_retrieve_url)
-            .send().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?; // TODO: better error enum :)
-        let text_response = response.text().map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
-        let retrieved_keys: ResponseQkdKeysList = serde_json::from_str(&text_response).map_err(|_| General("Cannot retrieve key from KME server".to_string()))?;
+            .send().map_err(|_| QkdKmeKeyRetrievalError)?;
+        let text_response = response.text().map_err(|_| QkdKmeKeyRetrievalError)?;
+        let retrieved_keys: ResponseQkdKeysList = serde_json::from_str(&text_response).map_err(|_| QkdKmeKeyRetrievalError)?;
         if retrieved_keys.keys.len() < 1 {
-            return Err(General("No key retrieved from KME server".to_string()));
+            return Err(QkdKmeKeyRetrievalError);
         }
         let key_base64 = retrieved_keys.keys[0].key.clone();
         let key_uuid = retrieved_keys.keys[0].key_ID.clone();
-        let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| General("Cannot decode retrieved key from KME server".to_string()))?[..];
-        let decoded_key = <[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| General("Cannot convert retrieved key from KME server".to_string()))?;
+        let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| QkdKmeKeyRetrievalError)?[..];
+        let decoded_key = <[u8; QKD_KEY_SIZE_BYTES]>::try_from(decoded_key).map_err(|_| QkdKmeKeyRetrievalError)?;
 
         let mut random_iv = [0u8; crate::qkd::QKD_IV_SIZE_BYTES];
         let _ = ring_like::rand::SystemRandom::new().fill(&mut random_iv).unwrap();

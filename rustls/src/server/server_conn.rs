@@ -835,7 +835,7 @@ impl Accepted {
         let response = kme_client.post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
         let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
         if response_keys.keys.len() < 1 {
-            return Err(Error::General("No key retrieved from KME server".to_string()));
+            return Err(Error::QkdKmeKeyRetrievalError);
         }
         let key_base64 = response_keys.keys[0].key.clone();
         let decoded_key = &general_purpose::STANDARD.decode(key_base64).map_err(|_| Error::General("Cannot decode retrieved key from KME server".to_string()))?[..];

@@ -511,6 +511,7 @@ mod client_hello {
         extensions.push(ServerExtension::SupportedVersions(ProtocolVersion::TLSv1_3));
 
         if let CurrentQkdState::Used(qkd_common_state) = &cx.common.current_qkd_common_state {
+            // Prepare QKD challenge, that will be sent as an extension in the ServerHello
             let server_qkd_challenge = crate::qkd::QkdChallenge::new();
 
             let qkd_key = &qkd_common_state.shared_encryption_key;
@@ -632,6 +633,12 @@ mod client_hello {
         suite: &'static Tls13CipherSuite,
         config: &ServerConfig,
     ) -> EarlyDataDecision {
+
+        // No early data in case of QKD
+        if let CurrentQkdState::Used(_) = cx.common.current_qkd_common_state {
+            return EarlyDataDecision::Disabled;
+        }
+
         let early_data_requested = client_hello.early_data_extension_offered();
         let rejected_or_disabled = match early_data_requested {
             true => EarlyDataDecision::RequestedButRejected,
