@@ -97,7 +97,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_initial_config.client_auth_certificate_password).map_err(|_| Error::General("Cannot read client cert".to_string()))?;
         let kme_client = reqwest::blocking::Client::builder()
             .identity(client_cert_id)
-            //.danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(qkd_initial_config.danger_accept_invalid_kme_cert)
             .build().map_err(|_| Error::General("Cannot create KME client".to_string()))?;
 
         let private_key = self

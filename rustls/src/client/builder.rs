@@ -177,7 +177,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_config.client_auth_certificate_password).map_err(|_| ())?;
         let kme_client = reqwest::blocking::Client::builder()
             .identity(client_cert_id)
-            //.danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(qkd_config.danger_accept_invalid_kme_cert)
             .build().map_err(|_| ())?;
 
         // Retrieve current SAE ID
