@@ -832,8 +832,16 @@ impl Accepted {
                 }
             ],
         };
-        let response = kme_client.post(kme_key_retrieve_url).json(&request_body_qkd_uuids).send().unwrap();
-        let response_keys: ResponseQkdKeysList = serde_json::from_str(&response.text().unwrap()).unwrap();
+        let response = kme_client
+            .post(kme_key_retrieve_url)
+            .json(&request_body_qkd_uuids)
+            .send()
+            .map_err(|_| Error::General("Cannot send QKD key retrieval request to KME".to_string()))?;
+        let response_text = response
+            .text()
+            .map_err(|_| Error::General("Cannot retrieve key retrieval response from KME".to_string()))?;
+        let response_keys: ResponseQkdKeysList = serde_json::from_str(&response_text)
+            .map_err(|_| Error::General(format!("Failed to decode QKD key from KME response: {}", response_text).to_string()))?;
         if response_keys.keys.len() < 1 {
             return Err(Error::QkdKmeKeyRetrievalError);
         }

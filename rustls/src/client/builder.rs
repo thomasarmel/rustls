@@ -170,23 +170,30 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
     }
 
     /// Accepts QKD
-    pub fn with_qkd(self, qkd_config: &QkdClientConfig) -> Result<ClientConfig, ()> {
+    pub fn with_qkd(self, qkd_config: &QkdClientConfig) -> Result<ClientConfig, Error> {
 
         let mut buf = Vec::new();
-        File::open(qkd_config.client_auth_certificate_path).unwrap().read_to_end(&mut buf).map_err(|_| ())?; // TODO: Error handling
-        let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_config.client_auth_certificate_password).map_err(|_| ())?;
+        File::open(qkd_config.client_auth_certificate_path)
+            .map_err(|_| Error::General("Failed to read client certificate".to_string()))?
+            .read_to_end(&mut buf)
+            .map_err(|_| Error::General("Failed to read client certificate".to_string()))?;
+        let client_cert_id = reqwest::Identity::from_pkcs12_der(&buf, qkd_config.client_auth_certificate_password)
+            .map_err(|_| Error::General("Failed to decode client certificate (maybe it has been generated with an outdated OpenSSL version)".to_string()))?;
         let kme_client = reqwest::blocking::Client::builder()
             .identity(client_cert_id)
             .danger_accept_invalid_certs(qkd_config.danger_accept_invalid_kme_cert)
-            .build().map_err(|_| ())?;
+            .build()
+            .map_err(|_| Error::General("Failed to create reqwest client for KME communication".to_string()))?;
 
         // Retrieve current SAE ID
         let this_sae_info_response = kme_client
             .get(&format!("https://{}/api/v1/sae/info/me", qkd_config.kme_addr))
             .send()
-            .map_err(|_| ())?
-            .text().map_err(|_| ())?;
-        let this_sae_info_obj: ResponseQkdSAEInfo = serde_json::from_str(&this_sae_info_response).map_err(|_| ())?;
+            .map_err(|_| Error::General("Failed to send identity retrieval request to KME".to_string()))?
+            .text()
+            .map_err(|_| Error::General("Error receiving identity from KME response".to_string()))?;
+        let this_sae_info_obj: ResponseQkdSAEInfo = serde_json::from_str(&this_sae_info_response)
+            .map_err(|_| Error::General(format!("Error decoding identity from KME response: {}", this_sae_info_response).to_string()))?;
 
         let client_config_qkd_fields = ClientConfigQkdFields {
             origin_sae_id: this_sae_info_obj.SAE_ID,
