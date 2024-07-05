@@ -19,10 +19,11 @@ fn connect_to_local_qkd() {
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store).with_qkd(
         &QkdClientConfig::new(
-            "localhost:3000",
+            "localhost:13000",
             "tests/data/sae1.pfx",
             "",
-            2
+            2,
+            true
         )).unwrap();
 
     // Allow using SSLKEYLOGFILE.
@@ -74,7 +75,8 @@ fn connect_to_wikipedia() {
             "localhost:3000",
             "tests/data/sae1.pfx",
             "",
-            2
+            2,
+            true
         )).unwrap();
 
     // Allow using SSLKEYLOGFILE.
@@ -223,9 +225,10 @@ impl TestPki {
             vec![self.server_cert_der],
             self.server_key_der,
             &QkdInitialServerConfig::new(
-                "localhost:3000",
+                "localhost:13000",
                 "tests/data/sae2.pfx",
-                ""
+                "",
+                true
             )).unwrap();
 
         server_config.set_key_log(Arc::new(rustls::KeyLogFile::new()));

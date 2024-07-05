@@ -264,7 +264,7 @@ pub struct ServerConfig {
 
     /// Supported protocol versions, in no particular order.
     /// The default is all supported versions.
-    pub(super) versions: crate::versions::EnabledVersions,
+    pub(super) versions: versions::EnabledVersions,
 
     /// How to verify client certificates.
     pub(super) verifier: Arc<dyn verify::ClientCertVerifier>,
@@ -444,7 +444,7 @@ impl<'a> ReadEarlyData<'a> {
     }
 }
 
-impl<'a> std::io::Read for ReadEarlyData<'a> {
+impl<'a> io::Read for ReadEarlyData<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.early_data.read(buf)
     }
